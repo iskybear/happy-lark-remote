@@ -9,7 +9,7 @@ import { atomicWrite } from '../persistence/atomic-write.js';
 export const CACHE_TTL_MS = 60 * 60 * 1000;
 
 /** Default npm registry endpoint for latest version query. */
-const DEFAULT_REGISTRY_URL = 'https://registry.npmjs.org/happy-lark-remote/latest';
+const DEFAULT_REGISTRY_URL = 'https://registry.npmjs.org/lark-remote/latest';
 
 /** Cache file schema. */
 export interface UpdateCache {

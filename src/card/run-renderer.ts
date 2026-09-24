@@ -11,7 +11,7 @@ import { collapsibleMarkdownPanel, markdownDiv, type PanelBorder } from './colla
 import { toolBodyMd, toolHeaderText } from './tool-render.js';
 import { truncateUtf8, truncateMarkdownTables, CARD_BUDGET_BYTES } from './text-truncate.js';
 import { formatTimestamp } from './time.js';
-import { formatUsageStats, formatCompactUsageStats } from '../router/utils.js';
+import { formatUsageStats } from '../router/utils.js';
 import { renderApprovalArea } from './approval-render.js';
 
 const REASONING_BYTES = 4_500;
@@ -546,9 +546,6 @@ function buildExtremeFallbackElements(state: RunState, options: RunCardRenderOpt
 /** Build the status row element (shared across full/degraded/extreme). */
 function statusRow(state: RunState): object {
   const statusLabel = statusTagLabel(state.terminal);
-  if (state.terminal === 'done') {
-    return markdownDiv(formatCompactUsageStats(state, state.durationMs), 'notation');
-  }
   const durationInfo = buildDurationInfo(state);
   return {
     tag: 'column_set',
@@ -961,15 +958,7 @@ function buildSummaryContent(
       { showResult: true, result },
     );
 
-    if (empty) elements.push(markdownDiv(empty.trim()));
-    elements.push(
-      collapsibleMarkdownPanel({
-        title: '用量详情',
-        expanded: false,
-        content: usageStatsStr,
-        textSize: 'notation',
-      }),
-    );
+    elements.push(markdownDiv(usageStatsStr + empty));
   }
 
   return elements;

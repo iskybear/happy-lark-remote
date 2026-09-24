@@ -20,7 +20,7 @@ Regardless of mode, lark-remote is intended for **single-user, private-chat (p2p
 
 If you discover a security vulnerability, please report it privately:
 
-- **GitHub Security Advisory**: [Report a vulnerability](https://github.com/iskybear/happy-lark-remote/security/advisories/new)
+- **GitHub Security Advisory**: [Report a vulnerability](https://github.com/bungabungawoda/lark-remote/security/advisories/new)
 - **Email**: Create a GitHub issue marked as "Security" and we will provide a secure contact
 
 Please **do not** file public issues for security vulnerabilities.
@@ -59,7 +59,7 @@ lark-remote 按各 agent 的**配置**权限模式运行。Claude 的默认配�
 
 如发现安全漏洞，请通过私密渠道报告：
 
-- **GitHub 安全公告**：[报告漏洞](https://github.com/iskybear/happy-lark-remote/security/advisories/new)
+- **GitHub 安全公告**：[报告漏洞](https://github.com/bungabungawoda/lark-remote/security/advisories/new)
 - **邮件**：创建标记为"Security"的 GitHub Issue，我们将提供安全联系方式
 
 请**不要**以公开 Issue 报告安全漏洞。

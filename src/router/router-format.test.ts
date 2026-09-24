@@ -3,7 +3,7 @@
  * cleanup): formatTimestamp / formatUsageStats have no router wiring.
  */
 import { describe, it, expect } from 'vitest';
-import { formatUsageStats, formatCompactUsageStats } from './utils.js';
+import { formatUsageStats } from './utils.js';
 import { formatTimestamp } from '../card/time.js';
 
 describe('formatTimestamp', () => {
@@ -315,28 +315,5 @@ describe('formatUsageStats', () => {
     expect(out).not.toContain('Model -');
     expect(out).not.toContain('Cost -');
     expect(out).not.toContain('Reasoning token -');
-  });
-});
-
-describe('compact status bar', () => {
-  it('shows measured duration and precise tokens on two lines', () => {
-    expect(
-      formatCompactUsageStats(
-        {
-          model: 'custom/glm-5.3-flash',
-          inputTokens: 2500,
-          outputTokens: 1200,
-          reasoningTokens: 797,
-          contextLength: 2400,
-          contextLimit: 1000000,
-        },
-        28700,
-      ),
-    ).toBe('已完成 · 耗时 28.7s · glm-5.3-flash\n↑ 2.5K · ↓ 1.2K · 💭 797 · 上下文 2.4K/1.0M (0%)');
-  });
-  it('does not invent missing limits, API counts or token usage', () => {
-    expect(formatCompactUsageStats({ contextLength: 56000 })).toBe('已完成\n上下文 56K');
-    expect(formatCompactUsageStats(undefined)).toBe('已完成');
-    expect(formatCompactUsageStats({ inputTokens: 0, outputTokens: 0 })).toBe('已完成\n↑ 0 · ↓ 0');
   });
 });

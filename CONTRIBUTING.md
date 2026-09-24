@@ -17,8 +17,8 @@ Thank you for your interest in contributing to lark-remote! This document provid
 ### Development Setup
 
 ```bash
-git clone https://github.com/iskybear/happy-lark-remote.git
-cd happy-lark-remote
+git clone https://github.com/bungabungawoda/lark-remote.git
+cd lark-remote
 bun install
 ```
 
@@ -81,8 +81,8 @@ bun install
 ### 开发环境搭建
 
 ```bash
-git clone https://github.com/iskybear/happy-lark-remote.git
-cd happy-lark-remote
+git clone https://github.com/bungabungawoda/lark-remote.git
+cd lark-remote
 bun install
 ```
 

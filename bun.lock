@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "happy-lark-remote",
+      "name": "lark-remote",
       "dependencies": {
         "@iarna/toml": "^2.2.5",
         "@larksuite/channel": "^0.3.0",

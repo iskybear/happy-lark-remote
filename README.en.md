@@ -1,10 +1,10 @@
-# happy-lark-remote
+# lark-remote
 
 English | [简体中文](README.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![npm](https://img.shields.io/npm/v/lark-remote.svg)](https://www.npmjs.com/package/lark-remote)
-[![CI](https://github.com/iskybear/happy-lark-remote/actions/workflows/ci.yml/badge.svg)](https://github.com/iskybear/happy-lark-remote/actions/workflows/ci.yml)
+[![CI](https://github.com/bungabungawoda/lark-remote/actions/workflows/ci.yml/badge.svg)](https://github.com/bungabungawoda/lark-remote/actions/workflows/ci.yml)
 
 A bridge between Feishu (Lark) private chat and local coding agents. Talk to Claude Code (or Codex / opencode / pi / Kimi / DSH) from Feishu — the agent reads/writes files and runs commands in a local directory you pick, with execution streamed live into a single CardKit 2.0 card.
 
@@ -48,8 +48,8 @@ lark-remote
 Option 2: from source:
 
 ```bash
-git clone https://github.com/iskybear/happy-lark-remote.git
-cd happy-lark-remote
+git clone https://github.com/bungabungawoda/lark-remote.git
+cd lark-remote
 bun install
 bun run build
 bun install -g "$(pwd)"  # install globally as lark-remote command (bun parses `.` as an empty package name; use an absolute path)

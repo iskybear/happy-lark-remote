@@ -91,16 +91,16 @@ export function getVersion(): string {
 
 /** Print version to stdout. */
 export function printVersion(): void {
-  process.stdout.write(`happy-lark-remote ${getVersion()}\n`);
+  process.stdout.write(`lark-remote ${getVersion()}\n`);
 }
 
 /** Print CLI help to stdout. */
 export function printHelp(): void {
   const lines = [
-    'happy-lark-remote — 飞书私聊 ↔ 本地 Coding Agent CLI 桥接',
+    'lark-remote — 飞书私聊 ↔ 本地 Coding Agent CLI 桥接',
     '',
     'Usage:',
-    '  happy-lark-remote [command] [options]',
+    '  lark-remote [command] [options]',
     '',
     'Commands:',
     '  update                 等同 --update：升级到最新版本后退出（不被运行中的实例阻塞）',

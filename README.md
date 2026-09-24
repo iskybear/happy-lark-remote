@@ -1,10 +1,10 @@
-# happy-lark-remote
+# lark-remote
 
 [English](README.en.md) | 简体中文
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![npm](https://img.shields.io/npm/v/lark-remote.svg)](https://www.npmjs.com/package/lark-remote)
-[![CI](https://github.com/iskybear/happy-lark-remote/actions/workflows/ci.yml/badge.svg)](https://github.com/iskybear/happy-lark-remote/actions/workflows/ci.yml)
+[![CI](https://github.com/bungabungawoda/lark-remote/actions/workflows/ci.yml/badge.svg)](https://github.com/bungabungawoda/lark-remote/actions/workflows/ci.yml)
 
 飞书私聊 ↔ 本地 Coding Agent 桥接。在飞书里和 Claude Code（或 Codex / opencode / pi / Kimi / DSH）对话，agent 在你指定的本地目录里读写文件、跑命令，执行过程以 CardKit 2.0 卡片**单卡实时流式**呈现。
 
@@ -48,8 +48,8 @@ lark-remote
 方式二：从源码安装：
 
 ```bash
-git clone https://github.com/iskybear/happy-lark-remote.git
-cd happy-lark-remote
+git clone https://github.com/bungabungawoda/lark-remote.git
+cd lark-remote
 bun install
 bun run build
 bun install -g "$(pwd)"  # 全局安装为 lark-remote 命令（相对路径 `.` 会触发 bun unsafe name bug，须绝对路径）
