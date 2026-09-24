@@ -33,6 +33,7 @@ interface NormalizedResultUsage {
   contextLimit?: number;
   /** Reasoning tokens (pi usage.reasoning). Undefined when not provided. */
   reasoningTokens?: number;
+  apiCalls?: number;
   /** Reconstructed or agent-declared context length (see JSDoc above). */
   contextLength: number;
 }
@@ -51,6 +52,7 @@ export function normalizeResultUsage(usage: TokenUsage): NormalizedResultUsage {
   const totalTokens = usage.total_tokens;
   const contextLimit = usage.context_limit;
   const reasoningTokens = usage.reasoning_tokens;
+  const apiCalls = usage.api_calls;
   // total_tokens (agent-declared total) takes priority; otherwise reconstruct
   // from the parts: input + cacheRead + cacheCreation + output.
   const contextLength =
@@ -64,6 +66,7 @@ export function normalizeResultUsage(usage: TokenUsage): NormalizedResultUsage {
     totalTokens,
     contextLimit,
     reasoningTokens,
+    apiCalls,
     contextLength,
   };
 }

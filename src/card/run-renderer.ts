@@ -11,7 +11,7 @@ import { collapsibleMarkdownPanel, markdownDiv, type PanelBorder } from './colla
 import { toolBodyMd, toolHeaderText } from './tool-render.js';
 import { truncateUtf8, truncateMarkdownTables, CARD_BUDGET_BYTES } from './text-truncate.js';
 import { formatTimestamp } from './time.js';
-import { formatUsageStats } from '../router/utils.js';
+import { formatUsageStats, formatCompactStatus } from '../router/utils.js';
 import { renderApprovalArea } from './approval-render.js';
 
 const REASONING_BYTES = 4_500;
@@ -430,7 +430,7 @@ function buildFallbackElements(
 ): object[] {
   const elements: object[] = [];
 
-  elements.push(statusRow(state));
+  if (state.terminal !== 'done') elements.push(statusRow(state));
   elements.push(...omittedBlocksHint(state));
 
   // 单遍分桶：thinking / tool（保持原相对顺序）
@@ -579,7 +579,7 @@ function statusRow(state: RunState): object {
 function buildSkeletonElements(state: RunState, options: RunCardRenderOptions): object[] {
   const elements: object[] = [];
 
-  elements.push(statusRow(state));
+  if (state.terminal !== 'done') elements.push(statusRow(state));
   elements.push(
     markdownDiv('_⚠️ 输出过大且含大量转义字符，已省略全部内容以避免超限；完整内容请查日志_'),
   );
@@ -697,7 +697,7 @@ export function estimateCardBytes(
   // renderRunCard 的 stringify 兜底捕获。
   let total =
     measureJson(assembleRunCard(state, options, [])) +
-    measureJson(statusRow(state)) +
+    (state.terminal === 'done' ? 0 : measureJson(statusRow(state))) +
     measureJson(buildSummaryContent(state, { includeNotices: false })) +
     measureJson(actionRow(state, options));
 
@@ -774,7 +774,7 @@ export function renderRunCard(state: RunState, options: RunCardRenderOptions = {
   // 构建完整卡（仅在估算低于阈值时，避免大 state 浪费 render + stringify）
   if (estimate < DEGRADED_THRESHOLD) {
     const elements: object[] = [
-      statusRow(state),
+      ...(state.terminal === 'done' ? [] : [statusRow(state)]),
       ...omittedBlocksHint(state),
       ...buildChronologicalContent(state, prepared, groups),
       ...buildSummaryContent(state, { includeNotices: false }),
@@ -958,7 +958,17 @@ function buildSummaryContent(
       { showResult: true, result },
     );
 
-    elements.push(markdownDiv(usageStatsStr + empty));
+    if (empty) elements.push(markdownDiv(empty.trim()));
+    elements.push({ tag: 'hr' });
+    elements.push(markdownDiv(formatCompactStatus(state), 'notation'));
+    elements.push(
+      collapsibleMarkdownPanel({
+        title: '用量详情',
+        expanded: false,
+        content: usageStatsStr,
+        textSize: 'notation',
+      }),
+    );
   }
 
   return elements;

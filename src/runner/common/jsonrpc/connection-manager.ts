@@ -207,6 +207,13 @@ export class ConnectionManager<TClient extends ConnectionClient = JsonRpcClient>
    * via a protocol `get_state` after a fresh spawn). This lets a subsequent run
    * resume the SAME session on the live connection instead of respawning it.
    */
+  /** Existing clients only; health probes must never spawn a model session. */
+  clientsForHealthCheck(): TClient[] {
+    return [...this.slots.values()]
+      .filter((slot) => !slot.createPromise && slot.client)
+      .map((slot) => slot.client);
+  }
+
   bindSession(workspace: string, sessionId: string): void {
     const slot = this.slots.get(workspace);
     if (slot) slot.boundSessionId = sessionId;

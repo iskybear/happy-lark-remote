@@ -265,6 +265,8 @@ export interface ResultEvent {
     context_limit?: number;
     /** 推理 token（pi 提供）。缺省不展示。 */
     reasoning_tokens?: number;
+    /** Number of model API responses in this run (Pi assistant message_end count). */
+    api_calls?: number;
   };
   total_cost_usd?: number;
   errorMessage?: string; // For auth errors and other run failures

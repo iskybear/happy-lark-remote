@@ -47,6 +47,12 @@ export class PiRpcTranslator {
   private accReasoning = 0;
   private lastTotalTokens: number | undefined;
   private hasUsage = false;
+  private apiCalls = 0;
+  private contextLimit: number | undefined;
+
+  setContextLimit(limit: number | undefined): void {
+    this.contextLimit = limit;
+  }
 
   /** toolcall_start bookkeeping：占位不发事件，end 时补发完整 tool_use（C3.4）。 */
   private pendingToolCall = false;
@@ -86,6 +92,8 @@ export class PiRpcTranslator {
       cache_creation_tokens: this.accCacheCreation,
       // 推理 token（pi usage.reasoning 累加）：> 0 才携带，缺省不展示。
       ...(this.accReasoning > 0 ? { reasoning_tokens: this.accReasoning } : {}),
+      api_calls: this.apiCalls,
+      ...(this.contextLimit !== undefined ? { context_limit: this.contextLimit } : {}),
       ...(this.lastTotalTokens != null ? { total_tokens: this.lastTotalTokens } : {}),
     };
   }
@@ -231,6 +239,7 @@ export class PiRpcTranslator {
       this.lastAssistantStopReason = m.stopReason;
       this.lastAssistantErrorMessage = m.stopReason === 'error' ? m.errorMessage : undefined;
       if (m.usage) this.addUsage(m.usage);
+      this.apiCalls += 1;
       const event: AgentEvent = {
         type: 'assistant',
         message: { content: this.content },

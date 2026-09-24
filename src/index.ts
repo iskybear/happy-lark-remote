@@ -1,3 +1,4 @@
+import { startHealthServer } from './health-server.js';
 import { loadConfig, getAgentConfig, type AppConfig } from './config/index.js';
 import {
   resolveAgentChoices,
@@ -966,6 +967,7 @@ async function main() {
     }
   }
 
+  await startHealthServer(configDir, () => bridge.probePiHealth());
   logger.info('lark-remote is running, press Ctrl+C to exit');
 }
 

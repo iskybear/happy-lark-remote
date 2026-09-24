@@ -73,9 +73,11 @@ describe('printVersion', () => {
     vi.restoreAllMocks();
   });
 
-  it('should print lark-remote <version> to stdout', () => {
+  it('should print happy-lark-remote <version> to stdout', () => {
     const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     printVersion();
-    expect(writeSpy).toHaveBeenCalledWith(expect.stringMatching(/^lark-remote \d+\.\d+\.\d+\n$/));
+    expect(writeSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/^happy-lark-remote \d+\.\d+\.\d+\n$/),
+    );
   });
 });

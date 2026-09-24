@@ -130,6 +130,18 @@ export class PiRpcRunner extends ConnectionBasedRunner<PiRpcClient, PiRpcTransla
     await this.manager.disposeAll();
   }
 
+  async probeHealth(): Promise<number> {
+    const clients = this.manager.clientsForHealthCheck();
+    await Promise.all(
+      clients.map(async (client) => {
+        if (!client.healthy) throw new Error('Pi transport closed');
+        const response = await client.request({ type: 'get_state' }, 5000);
+        if (!response.success) throw new Error('Pi get_state failed');
+      }),
+    );
+    return clients.length;
+  }
+
   getStatusInfo(): AgentStatusInfo {
     return {
       kind: 'pi',
@@ -153,9 +165,13 @@ export class PiRpcRunner extends ConnectionBasedRunner<PiRpcClient, PiRpcTransla
       onClose: () => this.failTurn('Pi RPC connection closed'),
     });
 
+    // Query on resumed turns too: the live model owns the context-window limit.
+    const state = await client.request({ type: 'get_state' });
+    const model = state.success
+      ? (state.data as { model?: { id?: string; contextWindow?: number } } | undefined)?.model
+      : undefined;
     let sessionId = opts.sessionId;
     if (!sessionId) {
-      const state = await client.request({ type: 'get_state' });
       if (state.success && state.data) {
         sessionId = (state.data as { sessionId?: string }).sessionId;
       }
@@ -168,7 +184,17 @@ export class PiRpcRunner extends ConnectionBasedRunner<PiRpcClient, PiRpcTransla
 
     const translator = new PiRpcTranslator();
     translator.setSessionId(sessionId);
+    translator.setContextLimit(model?.contextWindow);
     this.currentTranslator = translator;
+    this.pushEvents([
+      {
+        type: 'system',
+        subtype: 'init',
+        session_id: sessionId,
+        cwd: opts.cwd,
+        model: model?.id ?? this.defaultModel,
+      },
+    ]);
 
     const turnId = `turn-${Date.now()}`;
     this.currentTurnId = turnId;

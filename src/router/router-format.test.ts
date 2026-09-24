@@ -3,7 +3,7 @@
  * cleanup): formatTimestamp / formatUsageStats have no router wiring.
  */
 import { describe, it, expect } from 'vitest';
-import { formatUsageStats } from './utils.js';
+import { formatUsageStats, formatCompactStatus } from './utils.js';
 import { formatTimestamp } from '../card/time.js';
 
 describe('formatTimestamp', () => {
@@ -315,5 +315,28 @@ describe('formatUsageStats', () => {
     expect(out).not.toContain('Model -');
     expect(out).not.toContain('Cost -');
     expect(out).not.toContain('Reasoning token -');
+  });
+});
+
+describe('formatCompactStatus', () => {
+  it('matches the Pi-style two-line footer with real run metadata', () => {
+    expect(
+      formatCompactStatus({
+        durationMs: 28_700,
+        model: 'custom/glm-5.3-flash',
+        apiCalls: 1,
+        inputTokens: 2500,
+        outputTokens: 1200,
+        reasoningTokens: 797,
+        contextLength: 2400,
+        contextLimit: 1_000_000,
+      }),
+    ).toBe(
+      '已完成 · 耗时 28.7s · glm-5.3-flash · API 1\n↑ 2.5K · ↓ 1.2K · 💭 797 · 上下文 2.4K/1.0M (0%)',
+    );
+  });
+
+  it('omits unavailable fields instead of inventing values', () => {
+    expect(formatCompactStatus({ contextLength: 56_000 })).toBe('已完成\n上下文 56.0K');
   });
 });

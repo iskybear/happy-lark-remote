@@ -23,10 +23,13 @@ const readline = require('node:readline');
 const rl = readline.createInterface({ input: process.stdin });
 const send = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
 const sendSettled = () => send({ type: 'agent_settled' });
+let stateRequests = 0;
 rl.on('line', (line) => {
   let msg; try { msg = JSON.parse(line); } catch { return; }
+  if (config.commandLog) require('node:fs').appendFileSync(config.commandLog, msg.type + '\\n');
   if (msg.type === 'get_state') {
-    send({ id: msg.id, type: 'response', command: 'get_state', success: true, data: { sessionId: config.sessionId || '${SESSION_ID}' } });
+    if (++stateRequests > 1 && config.ignoreHealth) return;
+    send({ id: msg.id, type: 'response', command: 'get_state', success: true, data: { sessionId: config.sessionId || '${SESSION_ID}', model: config.model } });
   } else if (msg.type === 'prompt') {
     if (config.promptSuccess === false) {
       send({ id: msg.id, type: 'response', command: 'prompt', success: false, error: config.promptError || 'invalid model' });
@@ -110,6 +113,31 @@ describe('PiRpcRunner', () => {
     expect(assistant.message.content).toContainEqual({ type: 'text', text: 'Hello' });
   });
 
+  it('uses the live model limit and resets API count on resumed turns', async () => {
+    const runner = makeRunner({ model: { id: 'actual-model', contextWindow: 1000000 } });
+    try {
+      for (const sessionId of [undefined, SESSION_ID]) {
+        const events = [];
+        for await (const ev of runner.run('hello', { cwd: tmpDir, sessionId })) events.push(ev);
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: 'system',
+            subtype: 'init',
+            model: 'actual-model',
+          }),
+        );
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: 'result',
+            usage: expect.objectContaining({ api_calls: 1, context_limit: 1000000 }),
+          }),
+        );
+      }
+    } finally {
+      await runner.dispose();
+    }
+  });
+
   it('test_anchor_compact_requires_session_id', async () => {
     const runner = makeRunner();
     const events = [];
@@ -181,4 +209,37 @@ describe('PiRpcRunner', () => {
     expect(result.subtype).toBe('error');
     expect(result.errorMessage).toContain('invalid model: glm-does-not-exist');
   }, 15000);
+});
+
+describe('zero-cost RPC health', () => {
+  it('does not create a client while idle', async () => {
+    const runner = makeRunner();
+    expect(await runner.probeHealth()).toBe(0);
+    await runner.dispose();
+  });
+  it('only sends get_state on an existing client', async () => {
+    const commandLog = path.join(tmpDir, 'commands');
+    const runner = makeRunner({ commandLog });
+    try {
+      for await (const _event of runner.run('mock only', { cwd: tmpDir })) {
+        /* drain */
+      }
+      fs.writeFileSync(commandLog, '');
+      expect(await runner.probeHealth()).toBe(1);
+      expect(fs.readFileSync(commandLog, 'utf8')).toBe('get_state\n');
+    } finally {
+      await runner.dispose();
+    }
+  });
+  it('fails when a live child stops answering RPC', async () => {
+    const runner = makeRunner({ ignoreHealth: true });
+    try {
+      for await (const _event of runner.run('mock only', { cwd: tmpDir })) {
+        /* drain */
+      }
+      await expect(runner.probeHealth()).rejects.toThrow('timeout');
+    } finally {
+      await runner.dispose();
+    }
+  }, 10000);
 });
