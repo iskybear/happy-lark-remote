@@ -25,7 +25,7 @@ describe('inferPackageManagerFromPath', () => {
   it('detects bun global install layout', () => {
     expect(
       inferPackageManagerFromPath(
-        '/home/user/.bun/install/global/node_modules/lark-remote/dist/index.js',
+        '/home/user/.bun/install/global/node_modules/happy-lark-remote/dist/index.js',
       ),
     ).toBe('bun');
   });
@@ -33,21 +33,21 @@ describe('inferPackageManagerFromPath', () => {
   it('detects pnpm global install layout (realpath inside .pnpm store)', () => {
     expect(
       inferPackageManagerFromPath(
-        '/home/user/Library/pnpm/global/5/node_modules/.pnpm/lark-remote@0.1.4/node_modules/lark-remote/dist/index.js',
+        '/home/user/Library/pnpm/global/5/node_modules/.pnpm/happy-lark-remote@0.1.4/node_modules/happy-lark-remote/dist/index.js',
       ),
     ).toBe('pnpm');
   });
 
   it('detects npm global install layout (POSIX)', () => {
     expect(
-      inferPackageManagerFromPath('/usr/local/lib/node_modules/lark-remote/dist/index.js'),
+      inferPackageManagerFromPath('/usr/local/lib/node_modules/happy-lark-remote/dist/index.js'),
     ).toBe('npm');
   });
 
   it('detects npm global install layout (Windows backslash path)', () => {
     expect(
       inferPackageManagerFromPath(
-        'C:\\Users\\user\\AppData\\Roaming\\npm\\node_modules\\lark-remote\\dist\\index.js',
+        'C:\\Users\\user\\AppData\\Roaming\\npm\\node_modules\\happy-lark-remote\\dist\\index.js',
       ),
     ).toBe('npm');
   });
@@ -56,18 +56,20 @@ describe('inferPackageManagerFromPath', () => {
     // bun layout also contains /node_modules/lark-remote/ — must not become npm
     expect(
       inferPackageManagerFromPath(
-        '/home/user/.bun/install/global/node_modules/lark-remote/dist/cli.js',
+        '/home/user/.bun/install/global/node_modules/happy-lark-remote/dist/cli.js',
       ),
     ).toBe('bun');
     expect(
       inferPackageManagerFromPath(
-        '/home/user/Library/pnpm/global/5/node_modules/.pnpm/lark-remote@0.1.4/node_modules/lark-remote/dist/cli.js',
+        '/home/user/Library/pnpm/global/5/node_modules/.pnpm/happy-lark-remote@0.1.4/node_modules/happy-lark-remote/dist/cli.js',
       ),
     ).toBe('pnpm');
   });
 
   it('returns null for source checkout (dev mode)', () => {
-    expect(inferPackageManagerFromPath('/home/user/code/lark-remote/dist/index.js')).toBe(null);
+    expect(inferPackageManagerFromPath('/home/user/code/happy-lark-remote/dist/index.js')).toBe(
+      null,
+    );
   });
 });
 
@@ -98,22 +100,24 @@ describe('detectPackageManager', () => {
     // pnpm install layout: must pick pnpm even though npm exists on this machine
     expect(
       detectPackageManager(
-        '/home/user/Library/pnpm/global/5/node_modules/.pnpm/lark-remote@0.1.4/node_modules/lark-remote/dist/index.js',
+        '/home/user/Library/pnpm/global/5/node_modules/.pnpm/happy-lark-remote@0.1.4/node_modules/happy-lark-remote/dist/index.js',
       ),
     ).toBe('pnpm');
     expect(
-      detectPackageManager('/home/user/.bun/install/global/node_modules/lark-remote/dist/index.js'),
+      detectPackageManager(
+        '/home/user/.bun/install/global/node_modules/happy-lark-remote/dist/index.js',
+      ),
     ).toBe('bun');
-    expect(detectPackageManager('/usr/local/lib/node_modules/lark-remote/dist/index.js')).toBe(
-      'npm',
-    );
+    expect(
+      detectPackageManager('/usr/local/lib/node_modules/happy-lark-remote/dist/index.js'),
+    ).toBe('npm');
   });
 
   it('env override wins over script path inference', () => {
     process.env.LARK_REMOTE_MANAGED_BY = 'bun';
-    expect(detectPackageManager('/usr/local/lib/node_modules/lark-remote/dist/index.js')).toBe(
-      'bun',
-    );
+    expect(
+      detectPackageManager('/usr/local/lib/node_modules/happy-lark-remote/dist/index.js'),
+    ).toBe('bun');
   });
 
   it('invalid env / no marker path / no env → PATH availability fallback（npm→bun→pnpm）', () => {
@@ -132,7 +136,7 @@ describe('detectPackageManager', () => {
     delete process.env.LARK_REMOTE_MANAGED_BY;
     mockResolve.mockReset();
     mockResolve.mockImplementation((cmd: string) => (cmd === 'pnpm' ? '/usr/bin/pnpm' : null));
-    expect(detectPackageManager('/home/user/code/lark-remote/dist/index.js')).toBe('pnpm');
+    expect(detectPackageManager('/home/user/code/happy-lark-remote/dist/index.js')).toBe('pnpm');
 
     // PATH 全 miss → null（fail-closed）
     mockResolve.mockReset();
@@ -211,15 +215,15 @@ describe('runInstallLatest', () => {
 
     await runInstallLatest({ packageManager: 'npm', execFn: recordingExec });
     expect(calls[0].cmd).toBe('npm');
-    expect(calls[0].args).toEqual(['install', '-g', 'lark-remote@latest']);
+    expect(calls[0].args).toEqual(['install', '-g', 'happy-lark-remote@latest']);
 
     await runInstallLatest({ packageManager: 'bun', execFn: recordingExec });
     expect(calls[1].cmd).toBe('bun');
-    expect(calls[1].args).toEqual(['install', '-g', 'lark-remote@latest']);
+    expect(calls[1].args).toEqual(['install', '-g', 'happy-lark-remote@latest']);
 
     await runInstallLatest({ packageManager: 'pnpm', execFn: recordingExec });
     expect(calls[2].cmd).toBe('pnpm');
-    expect(calls[2].args).toEqual(['add', '-g', 'lark-remote@latest']);
+    expect(calls[2].args).toEqual(['add', '-g', 'happy-lark-remote@latest']);
   });
 
   describe('默认执行通道（不注入 execFn）', () => {
@@ -234,7 +238,7 @@ describe('runInstallLatest', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(vi.mocked(spawnProcess)).toHaveBeenCalledWith(
         'npm',
-        ['install', '-g', 'lark-remote@latest'],
+        ['install', '-g', 'happy-lark-remote@latest'],
         expect.objectContaining({ timeout: 120_000 }),
       );
       proc.emit('close', 0, null);

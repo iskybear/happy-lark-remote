@@ -80,14 +80,14 @@ function execViaSpawnProcess(
 
 /**
  * Infer the installing package manager from the real path of the running
- * script (e.g. `.../node_modules/lark-remote/dist/index.js`).
+ * script (e.g. `.../node_modules/happy-lark-remote/dist/index.js`).
  *
  * Layout markers (check order matters — bun/pnpm paths also contain
- * `/node_modules/lark-remote/`):
- * - bun:  `~/.bun/install/global/node_modules/lark-remote/...`
- * - pnpm: `<global>/node_modules/.pnpm/lark-remote@<ver>/node_modules/lark-remote/...`
- * - npm:  `<prefix>/lib/node_modules/lark-remote/...` (POSIX) or
- *         `<prefix>/node_modules/lark-remote/...` (Windows)
+ * `/node_modules/happy-lark-remote/`):
+ * - bun:  `~/.bun/install/global/node_modules/happy-lark-remote/...`
+ * - pnpm: `<global>/node_modules/.pnpm/happy-lark-remote@<ver>/node_modules/happy-lark-remote/...`
+ * - npm:  `<prefix>/lib/node_modules/happy-lark-remote/...` (POSIX) or
+ *         `<prefix>/node_modules/happy-lark-remote/...` (Windows)
  *
  * Returns null when the path has no marker (e.g. running from a source
  * checkout in dev mode).
@@ -95,8 +95,8 @@ function execViaSpawnProcess(
 export function inferPackageManagerFromPath(scriptPath: string): PackageManager | null {
   const p = scriptPath.replace(/\\/g, '/');
   if (p.includes('/.bun/install/global/')) return 'bun';
-  if (p.includes('/.pnpm/lark-remote@')) return 'pnpm';
-  if (p.includes('/node_modules/lark-remote/')) return 'npm';
+  if (p.includes('/.pnpm/happy-lark-remote@')) return 'pnpm';
+  if (p.includes('/node_modules/happy-lark-remote/')) return 'npm';
   return null;
 }
 
@@ -145,11 +145,11 @@ export function detectPackageManager(scriptPath?: string): PackageManager | null
 function getInstallCommand(pm: PackageManager): { cmd: string; args: string[] } {
   switch (pm) {
     case 'npm':
-      return { cmd: 'npm', args: ['install', '-g', 'lark-remote@latest'] };
+      return { cmd: 'npm', args: ['install', '-g', 'happy-lark-remote@latest'] };
     case 'bun':
-      return { cmd: 'bun', args: ['install', '-g', 'lark-remote@latest'] };
+      return { cmd: 'bun', args: ['install', '-g', 'happy-lark-remote@latest'] };
     case 'pnpm':
-      return { cmd: 'pnpm', args: ['add', '-g', 'lark-remote@latest'] };
+      return { cmd: 'pnpm', args: ['add', '-g', 'happy-lark-remote@latest'] };
   }
 }
 
@@ -177,7 +177,8 @@ export function runInstallLatest(opts?: {
   if (!pm) {
     return Promise.resolve({
       success: false,
-      error: '未检测到可用的包管理器（npm/bun/pnpm），请手动执行 npm install -g lark-remote@latest',
+      error:
+        '未检测到可用的包管理器（npm/bun/pnpm），请手动执行 npm install -g happy-lark-remote@latest',
     });
   }
 
