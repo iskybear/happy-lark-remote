@@ -11,7 +11,7 @@ import { agentDisplayName } from '../card/card-shared.js';
 import { collapsibleMarkdownPanel, markdownDiv } from '../card/collapsible.js';
 import { formatTimestamp } from '../card/time.js';
 import type { AgentSessionContentEvent } from '../runner/index.js';
-import { formatUsageStats } from './utils.js';
+import { formatUsageStats, formatCompactStatus } from './utils.js';
 
 type SessionUsageLike = Parameters<typeof formatUsageStats>[0];
 
@@ -374,7 +374,15 @@ export function buildSessionHistoryCard(
     const usageStr = opts.usageResult
       ? formatUsageStats(usage, { showResult: true, result: opts.usageResult })
       : formatUsageStats(usage);
-    elements.push(markdownDiv(usageStr));
+    elements.push(markdownDiv(formatCompactStatus(usage), 'notation'));
+    elements.push(
+      collapsibleMarkdownPanel({
+        title: '用量详情',
+        expanded: false,
+        content: usageStr,
+        textSize: 'notation',
+      }),
+    );
   }
 
   // Remove trailing hr

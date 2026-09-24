@@ -233,3 +233,44 @@ export function formatUsageStats(
 
   return lines.join('\n');
 }
+
+/**
+ * Pi-style final status line. This is deliberately separate from the detailed
+ * usage block: the footer is a stable summary while the latter remains useful
+ * for diagnostics and cumulative accounting.
+ */
+export function formatCompactStatus(usage?: {
+  durationMs?: number;
+  model?: string;
+  apiCalls?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  reasoningTokens?: number;
+  contextLength?: number;
+  contextLimit?: number;
+}): string {
+  if (!usage) return '✅ 已完成';
+  const token = (n: number) =>
+    n >= 1_000_000
+      ? `${(n / 1_000_000).toFixed(1)}M`
+      : n >= 1000
+        ? `${(n / 1000).toFixed(1)}K`
+        : `${n}`;
+  const head = ['已完成'];
+  if (usage.durationMs !== undefined) head.push(`耗时 ${(usage.durationMs / 1000).toFixed(1)}s`);
+  if (usage.model) head.push(usage.model.split('/').pop()!);
+  if (usage.apiCalls !== undefined) head.push(`API ${usage.apiCalls}`);
+  const detail: string[] = [];
+  if (usage.inputTokens !== undefined) detail.push(`↑ ${token(usage.inputTokens)}`);
+  if (usage.outputTokens !== undefined) detail.push(`↓ ${token(usage.outputTokens)}`);
+  if (usage.reasoningTokens !== undefined) detail.push(`💭 ${token(usage.reasoningTokens)}`);
+  if (usage.contextLength !== undefined) {
+    const limit = usage.contextLimit;
+    const cap =
+      limit && limit > 0
+        ? `/${token(limit)} (${Math.round((usage.contextLength / limit) * 100)}%)`
+        : '';
+    detail.push(`上下文 ${token(usage.contextLength)}${cap}`);
+  }
+  return head.join(' · ') + (detail.length ? `\n${detail.join(' · ')}` : '');
+}

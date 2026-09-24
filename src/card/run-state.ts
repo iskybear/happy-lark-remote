@@ -88,6 +88,8 @@ export interface RunNotice {
 }
 
 export interface RunState {
+  durationMs?: number;
+  apiCalls?: number;
   runId: string;
   terminal: RunTerminal;
   footer: RunFooter;
@@ -154,6 +156,8 @@ export interface RunState {
 }
 
 export interface FinishMeta {
+  durationMs?: number;
+  apiCalls?: number;
   resultSubtype?: 'success' | 'error' | 'interrupted';
   /** 中断来源：由桥侧在 finish 时显式传入（/stop → user_stop、审批卡取消 → approval_cancelled）。 */
   interruptedReason?: InterruptedReason;

@@ -3100,3 +3100,42 @@ describe('运行期通知作为普通消息', () => {
     expect(json).toContain('⚠️ notice-skeleton-marker');
   });
 });
+
+describe('compact footer placement', () => {
+  it('places the two-line footer after the answer and folds detailed usage', () => {
+    const state = finishRun(
+      {
+        ...createInitialRunState('footer'),
+        model: 'glm-5.3-flash',
+        blocks: [{ kind: 'text', content: 'TEST_ANSWER' }],
+      },
+      'done',
+      {
+        durationMs: 28700,
+        apiCalls: 1,
+        inputTokens: 2500,
+        outputTokens: 1200,
+        reasoningTokens: 797,
+        contextLength: 2400,
+        contextLimit: 1000000,
+      },
+    );
+    const card = renderRunCard(state, { agentKind: 'pi' }) as {
+      body: { elements: Array<Record<string, any>> };
+    };
+    const elements = card.body.elements;
+    const detail = elements.find(
+      (e) => e.tag === 'collapsible_panel' && e.header?.title?.content === '用量详情',
+    );
+    expect(detail?.expanded).toBe(false);
+    const footer = elements.findIndex((e) => e.text?.content?.includes('耗时 28.7s'));
+    expect(footer).toBeGreaterThan(
+      elements.findIndex((e) => JSON.stringify(e).includes('TEST_ANSWER')),
+    );
+    expect(elements[footer].text.content).toBe(
+      '已完成 · 耗时 28.7s · glm-5.3-flash · API 1\n↑ 2.5K · ↓ 1.2K · 💭 797 · 上下文 2.4K/1.0M (0%)',
+    );
+    expect(elements[footer].text.text_size).toBe('notation');
+    expect(JSON.stringify(elements.filter((e) => e !== detail))).not.toContain('Input token -');
+  });
+});
