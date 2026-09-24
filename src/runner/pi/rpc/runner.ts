@@ -130,6 +130,18 @@ export class PiRpcRunner extends ConnectionBasedRunner<PiRpcClient, PiRpcTransla
     await this.manager.disposeAll();
   }
 
+  async probeHealth(): Promise<number> {
+    const clients = this.manager.clientsForHealthCheck();
+    await Promise.all(
+      clients.map(async (client) => {
+        if (!client.healthy) throw new Error('Pi transport closed');
+        const response = await client.request({ type: 'get_state' }, 5000);
+        if (!response.success) throw new Error('Pi get_state failed');
+      }),
+    );
+    return clients.length;
+  }
+
   getStatusInfo(): AgentStatusInfo {
     return {
       kind: 'pi',

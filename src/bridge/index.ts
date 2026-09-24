@@ -217,6 +217,16 @@ export class Bridge {
    * blocked the queue forever.
    */
   private runners = new Map<string, Map<AgentKind, Runner>>();
+
+  async probePiHealth(): Promise<number> {
+    let count = 0;
+    for (const runners of this.runners.values()) {
+      const runner = runners.get('pi') as
+        (Runner & { probeHealth?: () => Promise<number> }) | undefined;
+      if (runner?.probeHealth) count += await runner.probeHealth();
+    }
+    return count;
+  }
   /**
    * Runner 槽位在「活跃运行期间配置变更」时被标 stale（CC-06/P1）：clearRunners() 对
    * 活跃 workspace 只标 stale、不立即 evict（避免误杀长驻连接），当前 run 结束后由
