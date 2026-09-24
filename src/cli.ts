@@ -49,7 +49,7 @@ export function handlePreflight(
   const major = parseInt(String(nodeVersion).split('.')[0], 10);
   if (!Number.isNaN(major) && major > 0 && major < MIN_NODE_MAJOR) {
     console.error(
-      `lark-remote 需要 Node >= ${MIN_NODE_MAJOR}（当前 ${nodeVersion}）。\n` +
+      `happy-lark-remote 需要 Node >= ${MIN_NODE_MAJOR}（当前 ${nodeVersion}）。\n` +
         '请升级 Node 后重试；若你在 WSL 里执行，注意 WSL 发行版的 node 与 Windows 侧的 node 是两套。',
     );
     return 1;

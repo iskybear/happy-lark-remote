@@ -233,3 +233,32 @@ export function formatUsageStats(
 
   return lines.join('\n');
 }
+
+/** Compact status bar; missing usage fields are omitted rather than estimated. */
+export function formatCompactUsageStats(
+  usage: Parameters<typeof formatUsageStats>[0],
+  durationMs?: number,
+): string {
+  const token = (n: number): string =>
+    n >= 1_000_000
+      ? `${(n / 1_000_000).toFixed(1)}M`
+      : n >= 1000
+        ? `${Number((n / 1000).toFixed(1))}K`
+        : String(n);
+  const header = ['已完成'];
+  if (durationMs !== undefined) header.push(`耗时 ${(durationMs / 1000).toFixed(1)}s`);
+  if (usage?.model) header.push(usage.model.split('/').pop()!);
+  const parts: string[] = [];
+  if (usage?.inputTokens !== undefined) parts.push(`↑ ${token(usage.inputTokens)}`);
+  if (usage?.outputTokens !== undefined) parts.push(`↓ ${token(usage.outputTokens)}`);
+  if (usage?.reasoningTokens) parts.push(`💭 ${token(usage.reasoningTokens)}`);
+  if (usage?.contextLength !== undefined) {
+    const limit = usage.contextLimit;
+    const capacity =
+      limit !== undefined && limit > 0
+        ? `/${token(limit)} (${Math.round((usage.contextLength / limit) * 100)}%)`
+        : '';
+    parts.push(`上下文 ${token(usage.contextLength)}${capacity}`);
+  }
+  return header.join(' · ') + (parts.length ? '\n' + parts.join(' · ') : '');
+}

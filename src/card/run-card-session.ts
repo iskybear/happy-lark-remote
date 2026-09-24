@@ -13,6 +13,8 @@ import { renderRunCard, type RunCardRenderOptions } from './run-renderer.js';
 export type { CardChannel as RunCardChannel };
 
 export class RunCardSession extends CardSession<RunState, RunCardRenderOptions> {
+  private readonly startedAt = Date.now();
+
   constructor(opts: {
     connector: CardChannel;
     chatId: string;
@@ -90,6 +92,7 @@ export class RunCardSession extends CardSession<RunState, RunCardRenderOptions> 
     // await 保证顺序：pre-terminal 先落地 → terminal 后落地 → terminal 胜出。
     if (this.flushP) await this.flushP;
     this.state = finishRun(this.state, terminal, meta);
+    this.state.durationMs ??= Date.now() - this.startedAt;
     await this.updateCard();
     this.release();
   }

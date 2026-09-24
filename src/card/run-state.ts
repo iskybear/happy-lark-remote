@@ -88,6 +88,7 @@ export interface RunNotice {
 }
 
 export interface RunState {
+  durationMs?: number;
   runId: string;
   terminal: RunTerminal;
   footer: RunFooter;
