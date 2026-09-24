@@ -42,7 +42,9 @@ describe('handlePreflight', () => {
     for (const arg of ['-v', '--version', 'version']) {
       writeSpy.mockClear();
       expect(handlePreflight([arg], '12.22.9')).toBe(0);
-      expect(writeSpy).toHaveBeenCalledWith(expect.stringMatching(/^lark-remote \d+\.\d+\.\d+\n$/));
+      expect(writeSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/^happy-lark-remote \d+\.\d+\.\d+\n$/),
+      );
     }
   });
 
