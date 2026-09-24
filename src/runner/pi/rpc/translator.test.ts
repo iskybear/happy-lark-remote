@@ -92,6 +92,22 @@ describe('PiRpcTranslator', () => {
     });
   });
 
+  it('counts assistant message_end events as model API calls', () => {
+    const t = new PiRpcTranslator();
+    t.setSessionId('aaaaaaaa-1111-2222-3333-444444444444');
+    for (const text of ['a', 'b']) {
+      t.handleEvent({
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text }],
+          usage: { input: 1, output: 1 },
+        },
+      });
+    }
+    expect(t.produceResultFromSettled()).toMatchObject({ usage: { api_calls: 2 } });
+  });
+
   it('test_anchor_stop_reason_error_produces_error_result', () => {
     const t = new PiRpcTranslator();
     t.setSessionId('aaaaaaaa-1111-2222-3333-444444444444');

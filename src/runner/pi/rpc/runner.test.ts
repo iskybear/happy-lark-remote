@@ -26,7 +26,7 @@ const sendSettled = () => send({ type: 'agent_settled' });
 rl.on('line', (line) => {
   let msg; try { msg = JSON.parse(line); } catch { return; }
   if (msg.type === 'get_state') {
-    send({ id: msg.id, type: 'response', command: 'get_state', success: true, data: { sessionId: config.sessionId || '${SESSION_ID}' } });
+    send({ id: msg.id, type: 'response', command: 'get_state', success: true, data: { sessionId: config.sessionId || '${SESSION_ID}', model: config.model } });
   } else if (msg.type === 'prompt') {
     if (config.promptSuccess === false) {
       send({ id: msg.id, type: 'response', command: 'prompt', success: false, error: config.promptError || 'invalid model' });
@@ -108,6 +108,31 @@ describe('PiRpcRunner', () => {
       message: { content: Array<{ text: string }> };
     };
     expect(assistant.message.content).toContainEqual({ type: 'text', text: 'Hello' });
+  });
+
+  it('uses the live model limit and resets API count on resumed turns', async () => {
+    const runner = makeRunner({ model: { id: 'actual-model', contextWindow: 1000000 } });
+    try {
+      for (const sessionId of [undefined, SESSION_ID]) {
+        const events = [];
+        for await (const ev of runner.run('hello', { cwd: tmpDir, sessionId })) events.push(ev);
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: 'system',
+            subtype: 'init',
+            model: 'actual-model',
+          }),
+        );
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: 'result',
+            usage: expect.objectContaining({ api_calls: 1, context_limit: 1000000 }),
+          }),
+        );
+      }
+    } finally {
+      await runner.dispose();
+    }
   });
 
   it('test_anchor_compact_requires_session_id', async () => {

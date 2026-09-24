@@ -1128,12 +1128,16 @@ export class Bridge {
     let finalCumulativeCacheCreationTokens: number | undefined;
     // Reasoning tokens (pi usage.reasoning) from the live result event.
     let finalReasoningTokens: number | undefined;
+    let finalApiCalls: number | undefined;
+    const startedAt = performance.now();
     // 统一的 usage meta 构造（finalize 各分支共享，本方法内原先 5 处手写 11-15
     // 字段对象；第 6 处 streamCodexCompact 形状不同未收敛）。
     // catch 路径需覆盖 flow 字段时在展开后覆写即可。catch error 路径亦复用此
     // 闭包，相比旧手写对象补齐了累计 cache 字段（cumulativeCacheReadTokens/
     // cumulativeCacheCreationTokens），属有意的口径对齐（向 done 路径看齐）。
     const usageMeta = () => ({
+      durationMs: Math.max(0, performance.now() - startedAt),
+      apiCalls: finalApiCalls,
       contextLength: finalContextLength,
       contextLimit: finalContextLimit,
       compactCount: finalCompactCount,
@@ -1386,6 +1390,7 @@ export class Bridge {
             if (u.reasoningTokens !== undefined) {
               finalReasoningTokens = u.reasoningTokens;
             }
+            if (u.apiCalls !== undefined) finalApiCalls = u.apiCalls;
           }
         }
         // Approval events (Codex app-server mode)
