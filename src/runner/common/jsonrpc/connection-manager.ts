@@ -26,6 +26,7 @@ export interface ConnectionClient {
   ready: boolean;
   healthy: boolean;
   connect(): Promise<unknown>;
+  clearRunHooks?(): void;
   dispose(): Promise<void>;
 }
 
@@ -304,6 +305,7 @@ export class ConnectionManager<TClient extends ConnectionClient = JsonRpcClient>
     this.clearIdleTimer(slot);
     if (slot.client) {
       try {
+        slot.client.clearRunHooks?.();
         await slot.client.dispose();
       } catch (err) {
         getLogger().warn(`[${this.logTag}] dispose error workspace=${workspace}: ${err}`);

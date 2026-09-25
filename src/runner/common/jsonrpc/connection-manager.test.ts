@@ -97,6 +97,28 @@ describe('ConnectionManager hook layering (review P2-1)', () => {
     await manager.disposeAll();
   }, 10000);
 
+  it('主动释放连接不会触发旧 run hook', async () => {
+    const { script } = makeIdleServer(tmpDir);
+    const manager = new ConnectionManager({
+      ...nodeLaunch(script),
+      initializeParams: INIT_PARAMS,
+    });
+    const client = await manager.acquire(tmpDir);
+    let runOnCloseFired = false;
+    client.setHooks({
+      onNotification: () => {},
+      onServerRequest: () => {},
+      onClose: () => {
+        runOnCloseFired = true;
+      },
+    });
+
+    await manager.release(tmpDir);
+
+    expect(runOnCloseFired).toBe(false);
+    expect(client.healthy).toBe(false);
+  }, 10000);
+
   it('connection lost disposes and re-acquire creates new connection', async () => {
     const { script } = makeExitServer(tmpDir, 50);
 

@@ -108,6 +108,11 @@ export class JsonRpcClient<InitializeResult = unknown> {
     this.runHooks = hooks;
   }
 
+  /** Detach the previous run before the connection is intentionally released. */
+  clearRunHooks(): void {
+    this.runHooks = null;
+  }
+
   get ready(): boolean {
     return this._ready;
   }
@@ -241,6 +246,7 @@ export class JsonRpcClient<InitializeResult = unknown> {
     if (this._disposed) return;
     this._disposed = true;
     this._ready = false;
+    this.clearRunHooks();
     this.failPending(new ConnectionLostError('client disposed'));
     await this.transport.close();
   }

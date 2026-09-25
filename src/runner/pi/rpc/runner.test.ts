@@ -113,6 +113,28 @@ describe('PiRpcRunner', () => {
     expect(assistant.message.content).toContainEqual({ type: 'text', text: 'Hello' });
   });
 
+  it('主动重建连接不会让旧 Pi close hook 误伤新 run', async () => {
+    const runner = makeRunner();
+    const first = [];
+    for await (const ev of runner.run('first', { cwd: tmpDir })) first.push(ev);
+
+    const second = [];
+    for await (const ev of runner.run('second', {
+      cwd: tmpDir,
+      sessionId: 'bbbbbbbb-1111-2222-3333-444444444444',
+    })) {
+      second.push(ev);
+    }
+
+    expect(second.find((e) => e.type === 'result')).toEqual(
+      expect.objectContaining({ subtype: 'success' }),
+    );
+    expect(mockLogger.warn).not.toHaveBeenCalledWith(
+      expect.stringContaining('Pi RPC connection closed'),
+    );
+    await runner.dispose();
+  });
+
   it('uses the live model limit and resets API count on resumed turns', async () => {
     const runner = makeRunner({ model: { id: 'actual-model', contextWindow: 1000000 } });
     try {
