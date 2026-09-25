@@ -169,6 +169,11 @@ export class CodexAppServerRunner extends ConnectionBasedRunner<
   private currentTranslator: CodexAppServerTranslator | null = null;
   private activeThreadId: string | null = null;
   private model?: string;
+  /**
+   * 当前线程实际生效的模型（thread/start·resume 响应回填，协议权威值，覆盖
+   * 配置缺省时走 codex config.toml 的情况）。仅用于合成 system.init 的 Model 行。
+   */
+  private activeModel?: string;
   private modelProvider?: string;
   private reasoningEffort?: string;
   private sandboxConfig?: SandboxMode;
@@ -223,6 +228,10 @@ export class CodexAppServerRunner extends ConnectionBasedRunner<
     return this.activeThreadId;
   }
 
+  protected currentModel(): string | undefined {
+    return this.activeModel;
+  }
+
   protected shouldDeferStop(): boolean {
     return !this.currentTurnId;
   }
@@ -242,6 +251,9 @@ export class CodexAppServerRunner extends ConnectionBasedRunner<
   protected clearTurnState(): void {
     this.currentTranslator = null;
     this.activeThreadId = null;
+    // 与 activeThreadId 同生命周期：避免下一 turn 握手之前（如 acquire 失败）
+    // 的兜底 init 报上一轮的模型。
+    this.activeModel = undefined;
   }
 
   protected async releaseConnection(cwd: string): Promise<void> {
@@ -288,7 +300,11 @@ export class CodexAppServerRunner extends ConnectionBasedRunner<
         threadId: opts.sessionId,
         ...this.buildThreadParams(opts.cwd),
       };
-      await client.request<ThreadResumeParams, ThreadStartResponse>('thread/resume', resumeParams);
+      const resumeResult = await client.request<ThreadResumeParams, ThreadStartResponse>(
+        'thread/resume',
+        resumeParams,
+      );
+      this.activeModel = resumeResult.model ?? this.model;
 
       await client.request('thread/compact/start', { threadId: opts.sessionId });
     });
@@ -450,8 +466,12 @@ export class CodexAppServerRunner extends ConnectionBasedRunner<
         threadId: opts.sessionId,
         ...threadParams,
       };
-      await client.request<ThreadResumeParams, ThreadStartResponse>('thread/resume', resumeParams);
+      const resumeResult = await client.request<ThreadResumeParams, ThreadStartResponse>(
+        'thread/resume',
+        resumeParams,
+      );
       threadId = opts.sessionId;
+      this.activeModel = resumeResult.model ?? this.model;
     } else {
       const threadResult = await client.request<ThreadStartParams, ThreadStartResponse>(
         'thread/start',
@@ -463,6 +483,7 @@ export class CodexAppServerRunner extends ConnectionBasedRunner<
       // 键定位 JSONL）。forked/subagent 线程二者会分叉（openai/codex#29327），
       // 桥只把主线程作为顶层会话，不在此链路内。
       threadId = threadResult.thread.id;
+      this.activeModel = threadResult.model ?? this.model;
     }
     this.activeThreadId = threadId;
 

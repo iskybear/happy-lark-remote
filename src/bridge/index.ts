@@ -1291,7 +1291,7 @@ export class Bridge {
             }
           }
           getLogger().info(
-            `[lark-remote] system.init received runId=${runId} sessionId=${event.session_id} cwd=${event.cwd}`,
+            `[lark-remote] system.init received runId=${runId} sessionId=${event.session_id} cwd=${event.cwd} model=${event.model || '(unknown)'}`,
           );
         }
         if (event.type === 'turn_started') {

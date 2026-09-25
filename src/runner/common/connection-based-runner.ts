@@ -76,6 +76,15 @@ export abstract class ConnectionBasedRunner<TClient, TEvent = AgentEvent> implem
   /** The active thread/session id, used for result events / synthetic init. */
   protected abstract currentSessionId(): string | null;
 
+  /**
+   * 本 run 实际生效的模型名，用于合成 system.init（卡片 Model 行）。协议类
+   * runner（app-server/ACP）没有 init 通知，只能自己从握手响应里取；无法确定
+   * 时返回 undefined，合成 init 带空串，卡片隐藏该行（不伪造）。
+   */
+  protected currentModel(): string | undefined {
+    return undefined;
+  }
+
   /** Deferred-stop predicate: stop() marks stopRequested instead of cancelling now. */
   protected abstract shouldDeferStop(): boolean;
 
@@ -147,11 +156,17 @@ export abstract class ConnectionBasedRunner<TClient, TEvent = AgentEvent> implem
       // §9.22 守卫前提：桥的 pre-init result guard 和 run-state reducer 都以
       // system.init 作为「本轮真实开始」的标记，而这些协议没有 init 事件。
       // 缺了它，成功的 result 会被当作 pre-init 丢弃，卡片终态停在 running。
-      yield syntheticInitEvent(this.currentSessionId() ?? opts.sessionId ?? '');
+      yield syntheticInitEvent(
+        this.currentSessionId() ?? opts.sessionId ?? '',
+        this.currentModel(),
+      );
       yield* this.consumeTurn();
     } catch (err) {
       getLogger().error(`[${this.logTag}] run error: ${(err as Error).message}`);
-      yield syntheticInitEvent(this.currentSessionId() ?? opts.sessionId ?? '');
+      yield syntheticInitEvent(
+        this.currentSessionId() ?? opts.sessionId ?? '',
+        this.currentModel(),
+      );
       yield {
         type: 'result',
         subtype: 'error',

@@ -115,6 +115,60 @@ describePosix('CodexAppServerRunner integration', () => {
     await runner.dispose();
   });
 
+  it('test_anchor_appserver_init_reports_effective_model', async () => {
+    // 验证行为：app-server 协议没有 system.init 通知，模型由 runner 合成的 init
+    // 携带（thread/start·resume 响应里的生效模型），卡片才能渲染
+    // "已完成 · 耗时 Xs · <model>" 与「用量详情」的 Model 行。
+    // 缺失后果：codex 卡片只有耗时、没有模型（claude 有，因为 Claude CLI 自己发
+    // 真实 init）——用户看到的差异就是这个合成 init 的 model 字段为空串。
+    const cwd = join(tmpDir, 'workspace-model');
+    mkdirSync(cwd, { recursive: true });
+
+    const runOnce = async (
+      fixture: string,
+      opts: { model?: string; sessionId?: string },
+    ): Promise<AgentEvent[]> => {
+      const runner = new CodexAppServerRunner({
+        kind: 'codex',
+        sessionReader: createStubSessionReader(),
+        binary: process.execPath,
+        appServerArgs: [FAKE_SERVER, join(FIXTURES, fixture)],
+        ...(opts.model ? { model: opts.model } : {}),
+      });
+      const events: AgentEvent[] = [];
+      for await (const event of runner.run('hello', {
+        cwd,
+        ...(opts.sessionId ? { sessionId: opts.sessionId } : {}),
+      })) {
+        events.push(event);
+      }
+      await runner.dispose();
+      return events;
+    };
+
+    // 1) 新线程：runner 未配模型（走 codex config.toml）时，响应仍是权威来源
+    const freshEvents = await runOnce('normal-turn.json', {});
+    const freshInit = freshEvents.find((e) => e.type === 'system' && e.subtype === 'init') as
+      (AgentEvent & { model?: string }) | undefined;
+    expect(freshInit?.model).toBe('deepseek-v4-flash');
+
+    // 归约到 RunState：卡片渲染读的是 state.model（见 run-renderer 的
+    // formatUsageStats / formatCompactStatus），事件到状态这一段必须通。
+    let state = createInitialRunState('run-model-e2e');
+    for (const event of freshEvents) state = reduceRunState(state, event);
+    expect(state.model).toBe('deepseek-v4-flash');
+
+    // 2) 恢复线程：响应里的生效模型优先于配置值（模型重路由/配置漂移时，
+    // 配置是「请求值」，响应才是「生效值」，两者不得混用）
+    const resumedEvents = await runOnce('resume-turn.json', {
+      model: 'gpt-5.5-codex',
+      sessionId: 'th-aaa-111',
+    });
+    const resumedInit = resumedEvents.find((e) => e.type === 'system' && e.subtype === 'init') as
+      (AgentEvent & { model?: string }) | undefined;
+    expect(resumedInit?.model).toBe('deepseek-v4-flash');
+  });
+
   it('updateApprovalMode updates the local status snapshot immediately', async () => {
     const runner = new CodexAppServerRunner({
       kind: 'codex',
@@ -705,6 +759,12 @@ describePosix('CodexAppServerRunner integration', () => {
       (AgentEvent & { subtype: string }) | undefined;
     expect(result).toBeDefined();
     expect(result?.subtype).toBe('success');
+
+    // Compact 也经 runCompact → thread/resume：合成 init 同样要带生效模型，否则
+    // 压缩卡片又回到没有 Model 行的状态。
+    const init = events.find((e) => e.type === 'system' && e.subtype === 'init') as
+      (AgentEvent & { model?: string }) | undefined;
+    expect(init?.model).toBe('deepseek-v4-flash');
 
     // 冷连接回归（2026-08-12 review）：真实 codex app-server 对未加载的线程
     // 直接 thread/compact/start 返回 -32600 "thread not found"。runner 必须先
