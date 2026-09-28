@@ -1,20 +1,20 @@
 /**
- * posix 终止器：`src/runner/common/process-stopper.ts` 的原样迁移（design.md §3.2）。
+ * posix 终止器（design.md §3.2）。
  *
- * 语义与迁移前逐条对齐：SIGTERM 打负 PID 进程组 → 等 graceMs → SIGKILL；
- * immediate 则两个信号连发。本次只新增两样东西：
+ * 语义：SIGTERM 打负 PID 进程组 → 等 graceMs → SIGKILL；immediate 则两个信号
+ * 连发。相对原来的 `process-stopper` 类多两样东西：
  *   - 返回 {@link TerminateResult} 让终止途经可观测（与 win32 同构）；
  *   - `cleanupOnExit`（Terminator 接口要求的进程级退出清理）。
  *
- * `ProcessStopper` 保留为兼容壳：行为（含日志文案）零变化，既有调用方与
- * 测试无需改动；M2 调用点迁移时逐个换成 Terminator 后即可删除。
+ * 原 `ProcessStopper` 兼容壳与 `runner/common/process-stopper.ts` 已随调用点
+ * 迁移完成（transport / spawning-runner / kimi acp 三个模块）删除。
  */
 import type { ChildProcess } from 'node:child_process';
 import { getLogger } from '../logger/index.js';
 import type { Terminator } from './terminator.js';
 import type { TerminateResult } from './types.js';
 
-export type LogLevel = 'debug' | 'info';
+export type LogLevel = 'debug' | 'info' | 'warn';
 export type TerminatorLogger = (level: LogLevel, message: string) => void;
 
 export interface PosixTerminatorDeps {
@@ -28,12 +28,30 @@ export interface PosixTerminatorDeps {
 function defaultLog(level: LogLevel, message: string): void {
   const logger = getLogger();
   if (level === 'debug') logger.debug(message);
+  else if (level === 'warn') logger.warn(message);
   else logger.info(message);
 }
 
 /** 退出判定统一口径（CLAUDE.md 红线）：exitCode !== null || signalCode !== null。 */
 function isAlive(proc: ChildProcess): boolean {
   return proc.exitCode === null && proc.signalCode === null;
+}
+
+/**
+ * 向进程组发一个信号；返回失败原因，null 表示已送达或无需送达。
+ *
+ * ESRCH（进程组已经没了）与杀成功同等处置——这正是「停止」想要的结果；
+ * 其余失败（EPERM 等）必须报出去，否则调用方拿到假成功，事后既不知也没得查。
+ */
+function signalGroup(pgid: number, signal: NodeJS.Signals): string | null {
+  try {
+    process.kill(pgid, signal);
+    return null;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ESRCH') return null;
+    return `${signal} 未送达 pgid=${pgid}: ${code ?? (err as Error).message}`;
+  }
 }
 
 async function stopPosix(
@@ -53,18 +71,18 @@ async function stopPosix(
   const pgid = -pid;
 
   log('debug', `[process-stopper] sending SIGTERM to pgid=${pgid} immediate=${opts.immediate}`);
-  try {
-    process.kill(pgid, 'SIGTERM');
-  } catch {
-    /* process may have exited */
+  const termErr = signalGroup(pgid, 'SIGTERM');
+  if (termErr) {
+    log('warn', `[process-stopper] ${termErr}`);
+    return { requested: false, via: 'cooperative', error: termErr };
   }
 
   if (opts.immediate) {
     // 不等待：SIGKILL 紧随其后；进程已死时 kill 抛 ESRCH，忽略即可
-    try {
-      process.kill(pgid, 'SIGKILL');
-    } catch {
-      /* process already gone */
+    const killErr = signalGroup(pgid, 'SIGKILL');
+    if (killErr) {
+      log('warn', `[process-stopper] ${killErr}`);
+      return { requested: false, via: 'taskkill', error: killErr };
     }
     return { requested: true, via: 'taskkill' };
   }
@@ -87,10 +105,10 @@ async function stopPosix(
       'info',
       `[process-stopper] process group ${pgid} did not exit within grace period, sending SIGKILL`,
     );
-    try {
-      process.kill(pgid, 'SIGKILL');
-    } catch {
-      /* process already gone */
+    const killErr = signalGroup(pgid, 'SIGKILL');
+    if (killErr) {
+      log('warn', `[process-stopper] ${killErr}`);
+      return { requested: false, via: 'taskkill', error: killErr };
     }
     return { requested: true, via: 'taskkill' };
   }
@@ -114,33 +132,4 @@ export function createPosixTerminator(deps: PosixTerminatorDeps): Terminator {
       }
     },
   };
-}
-
-interface ProcessStopperOptions {
-  graceMs: number;
-}
-
-interface StopOptions {
-  immediate?: boolean;
-}
-
-/**
- * 迁移前的类名（兼容壳）：返回 void、接受 null proc。
- * 新代码请用 {@link createPosixTerminator} / `createTerminator`。
- */
-export class ProcessStopper {
-  private graceMs: number;
-
-  constructor(opts: ProcessStopperOptions) {
-    this.graceMs = opts.graceMs;
-  }
-
-  async stop(proc: ChildProcess | null, opts?: StopOptions): Promise<void> {
-    if (!proc) return;
-    await stopPosix(
-      proc,
-      { graceMs: this.graceMs, immediate: opts?.immediate === true },
-      defaultLog,
-    );
-  }
 }

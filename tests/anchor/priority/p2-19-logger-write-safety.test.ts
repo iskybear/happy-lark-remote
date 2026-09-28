@@ -9,7 +9,7 @@
  * 修复：write() 整体 try/catch，吞掉写入异常（最多 stderr 兜底一行）。
  *
  * 这个 anchor 让 fs.appendFileSync 抛出 EACCES，断言 logger.error/info 调用
- * 不抛、返回 undefined。真红 = 当前实现 write 抛出穿透调用方。
+ * 不抛、返回 undefined。守住的失败模式：修复前 write 抛出穿透调用方。
  *
  * 同轮一并修 P2-19②：timestampStr 用 toISOString()（UTC），与 todayStr（本地
  * 时区）不一致——本地午夜后前 8 小时新目录里的日志行时间戳还是前一天。修复
@@ -18,10 +18,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import { Logger } from '../../../src/logger/index.js';
+import { makeTempDir } from '../../lib/temp-dir.js';
 
 describe('P2-19: logger.write never throws on disk failure', () => {
   let appendSpy: ReturnType<typeof vi.spyOn>;
+  // Logger 构造时就会 mkdir 日志目录 —— 固定 '/tmp/...' 在 win32 上落到仓库外的
+  // D:\tmp（跨进程共享 + 兜底 sweep 扫不到）。用本用例独占的 mkdtemp 目录。
+  let logDir: string;
   beforeEach(() => {
+    logDir = makeTempDir('lark-p2-19-logger-');
     appendSpy = vi.spyOn(fs, 'appendFileSync').mockImplementation(() => {
       throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
     });
@@ -31,7 +36,7 @@ describe('P2-19: logger.write never throws on disk failure', () => {
   });
 
   it('test_anchor_logger_write_does_not_throw_on_disk_error', () => {
-    const logger = new Logger({ dir: '/tmp/p2-19-logger-test', level: 'info', pid: 12345 });
+    const logger = new Logger({ dir: logDir, level: 'info', pid: 12345 });
     // RED today: write() does not catch appendFileSync → this throws EACCES
     // up through error(), which in an uncaughtException handler would abort
     // Node and skip instanceLock.release(). GREEN: write() swallows the
@@ -57,7 +62,7 @@ describe('P2-19: logger.write never throws on disk failure', () => {
     vi.spyOn(fs, 'appendFileSync').mockImplementation(() => {});
     const now = new Date('2026-08-02T17:30:00.000Z');
     const logger = new Logger({
-      dir: '/tmp/p2-19-logger-test',
+      dir: logDir,
       level: 'info',
       pid: 12346,
       now: () => now,

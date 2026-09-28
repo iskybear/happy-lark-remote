@@ -6,7 +6,8 @@
  * `src/router/index.ts` 的裸前缀判定当成 bash 命令执行了整段消息。
  *
  * 规则来源：`docs/zh/architecture/inbound-message-matrix.md` §1 的 22 种 message_type
- * 实测渲染串。判定顺序**先清洗后判语义**：任何前缀判定都必须发生在剥离之后。
+ * 实测渲染串（`@larksuite/channel@0.7.1`）。判定顺序**先清洗后判语义**：任何前缀
+ * 判定都必须发生在剥离之后。
  *
  * 取舍（有意为之）：剥离对所有消息生效，所以用户在**纯文本**消息里手打
  * `![image](…)` / `<file key="…"/>` 这类字面量也会被当成占位符剥掉。代价是极少数
@@ -33,7 +34,7 @@ export type PlaceholderKind =
   | 'unknown';
 
 export interface StripResult {
-  /** 剥离占位符后的文本（trim 后；forwarded 块只剥标签、保留内部文本）。 */
+  /** 剥离占位符后的文本（trim 后；forwarded 与未知成对标签只剥标签、保留内部文本）。 */
   clean: string;
   /** 命中的占位符种类（去重、保序），用于 rejected 回执与排障。 */
   kinds: PlaceholderKind[];
@@ -88,8 +89,13 @@ const BLOCK_RULES: ReadonlyArray<readonly [RegExp, PlaceholderKind]> = [
 /** 图片渲染串：`![image](img_v3_…)` / `![]()`,富文本内嵌图与纯 image 消息同形。 */
 const IMAGE_MD_RE = /!\[(?:image)?\]\([^)]*\)/g;
 
-/** 合并转发：只剥标签、保留内部文本（子消息文本有语义）。 */
-const FORWARDED_TAG_RE = /<\/?forwarded_messages\s*\/?>/g;
+/**
+ * 合并转发：只剥标签、保留内部文本（子消息文本有语义）。
+ * `@larksuite/channel@0.4.1+` 在子消息抓取重试耗尽后渲染
+ * `<forwarded_messages status="fetch_failed"/>`（带属性、自闭合）——属性段必须
+ * 一起吃掉，否则落到「未知标签」分支，被判为 unsupported 并污染排障日志。
+ */
+const FORWARDED_TAG_RE = /<\/?forwarded_messages(?:\s[^<>]*)?\/?>/g;
 
 /** 提及标签：保留内部显示名，不作为占位符上报。 */
 const AT_TAG_RE = /<at(?:\s[^<>]*)?>([\s\S]*?)<\/at>/g;
@@ -101,9 +107,13 @@ const BRACKET_FALLBACK_RE =
 /**
  * 未知标签兜底：只在「有属性」或「成对闭合」时才剥离。
  * 要求有属性可显著降低误伤——用户正文里的 `<3`、`a < b`、`<div>` 不会被吃掉。
+ *
+ * 成对标签**只剥标签、保留内文本**（与 `AT_TAG_RE`、`FORWARDED_TAG_RE` 同口径）：
+ * 内文本是用户打出来的正文（`<b>重点</b>`、`<info>disk full</info>`），整块吃掉
+ * 会让 coding agent 拿到残缺输入，而用户完全无从察觉。
  */
 const UNKNOWN_SELF_CLOSING_RE = /<([a-z][a-z0-9_]*)\s[^<>]*\/>/g;
-const UNKNOWN_PAIRED_RE = /<([a-z][a-z0-9_]*)(?:\s[^<>]*)?>[\s\S]*?<\/\1>/g;
+const UNKNOWN_PAIRED_RE = /<([a-z][a-z0-9_]*)(?:\s[^<>]*)?>([\s\S]*?)<\/\1>/g;
 
 /** 剥离后遗留的连续空行折叠为单空行（属剥离产物，不算对用户文本加工）。 */
 function collapseBlankLines(text: string): string {
@@ -170,15 +180,15 @@ export function stripPlaceholders(raw: string): StripResult {
   });
 
   // 8. 未知标签兜底（未来 SDK 新增类型）：剥离 + 记录 tag 名。
-  working = working.replace(UNKNOWN_SELF_CLOSING_RE, (match, tag: string) => {
+  working = working.replace(UNKNOWN_SELF_CLOSING_RE, (_match, tag: string) => {
     hit('unknown');
     if (!unknownTags.includes(tag)) unknownTags.push(tag);
     return '';
   });
-  working = working.replace(UNKNOWN_PAIRED_RE, (match, tag: string) => {
+  working = working.replace(UNKNOWN_PAIRED_RE, (_match, tag: string, inner: string) => {
     hit('unknown');
     if (!unknownTags.includes(tag)) unknownTags.push(tag);
-    return '';
+    return inner;
   });
 
   // 9. 放回协议块。

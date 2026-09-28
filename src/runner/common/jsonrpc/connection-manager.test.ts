@@ -3,6 +3,8 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ConnectionManager } from './connection-manager.js';
+import { AgentStopperRegistry } from '../../../platform/agent-stopper.js';
+import { binaryName } from '../../../platform/identity.js';
 import { rmRf } from '../../../../tests/lib/tmp-cleanup.js';
 
 /**
@@ -149,6 +151,38 @@ describe('ConnectionManager hook layering (review P2-1)', () => {
     await manager.disposeAll();
   }, 10000);
 
+  /**
+   * 验证什么：`idleTtlMs: 0` = 禁用空闲回收（连接常驻），不是「立即回收」。
+   * 缺失/错误会导致什么：同仓库其它 TTL 一律「0 = 不回收」（claude
+   *   `session.ts` armIdleTimer 的 `<= 0` 守卫、`claude.idleTtlMinutes` schema
+   *   注释），而这里 0 会 setTimeout(...,0) 把刚建好的连接秒删——用户在 YAML
+   *   里照 `dir.ts` 的引导手改这个键，得到的是"每条消息都重起进程"。
+   * 依据：clean_review §B9（两种语义取其一并对齐注释，这里统一到 0=禁用）。
+   */
+  it('idleTtlMs 0 disables idle recycling instead of dropping the connection', async () => {
+    const { script } = makeIdleServer(tmpDir);
+
+    vi.useFakeTimers();
+
+    const manager = new ConnectionManager({
+      ...nodeLaunch(script),
+      idleTtlMs: 0,
+      initializeParams: INIT_PARAMS,
+    });
+
+    const client = await manager.acquire(tmpDir);
+    expect(client.ready).toBe(true);
+
+    manager.notifyIdle(tmpDir);
+    vi.advanceTimersByTime(5 * 60 * 1000);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(client.healthy).toBe(true);
+
+    vi.useRealTimers();
+    await manager.disposeAll();
+  }, 10000);
+
   it('notifyActivity disarms idle timer', async () => {
     const { script } = makeIdleServer(tmpDir);
 
@@ -220,5 +254,35 @@ describe('ConnectionManager hook layering (review P2-1)', () => {
     });
 
     await expect(manager.acquire(tmpDir)).rejects.toThrow();
+  }, 10000);
+
+  it('test_anchor_connection_manager_plumbs_cooperative_stop_channel', async () => {
+    // design §3.3：runner 只提供「通道工厂」，登记/注销由连接层负责——连接是
+    // agent 进程的生命周期边界，pid 也只有这里知道（transport.pid）。
+    // 工厂必须拿到**连接本身**：协议取消只能发在这条连接上。
+    const { script, pidFile } = makeIdleServer(tmpDir);
+    const stoppers = new AgentStopperRegistry();
+    const seen: Array<{ pid: number; client: unknown }> = [];
+
+    const manager = new ConnectionManager({
+      ...nodeLaunch(script),
+      initializeParams: INIT_PARAMS,
+      stoppers,
+    });
+    // 与 kimi/opencode 同款接线方式：runner 在构造后赋值（manager 建在 super()
+    // 实参里时 this 尚不可用）
+    manager.stopper = ({ pid, client }) => {
+      seen.push({ pid, client });
+      return () => {};
+    };
+
+    const client = await manager.acquire(tmpDir);
+    const pid = Number(readFileSync(pidFile, 'utf8').trim());
+    expect(seen).toEqual([{ pid, client }]);
+    // agent 键取 binary 名（与 transport 建 Terminator 时同一来源，保证查表命中）
+    expect(stoppers.has(binaryName(process.execPath), pid)).toBe(true);
+
+    await manager.disposeAll();
+    expect(stoppers.has(binaryName(process.execPath), pid)).toBe(false);
   }, 10000);
 });

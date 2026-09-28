@@ -1,13 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createMockProc, emitExit } from '../../tests/lib/mock-process.js';
+import { mockLogger } from '../../tests/lib/logger-mock.js';
 
-const { mockLogger } = vi.hoisted(() => ({
-  mockLogger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-}));
+vi.mock('../logger/index.js', async () =>
+  (await import('../../tests/lib/logger-mock.js')).loggerModuleMock(),
+);
 
-vi.mock('../logger/index.js', () => ({ getLogger: () => mockLogger }));
-
-import { createPosixTerminator, ProcessStopper } from './terminator-posix.js';
+import { createPosixTerminator } from './terminator-posix.js';
 
 describe('createPosixTerminator', () => {
   let killSpy: ReturnType<typeof vi.spyOn>;
@@ -84,6 +83,41 @@ describe('createPosixTerminator', () => {
     });
   });
 
+  it('B3：SIGTERM 投递失败（EPERM）→ requested:false + 原因，不报假成功', async () => {
+    const terminator = createPosixTerminator({ graceMs: 5000 });
+    killSpy.mockImplementation(() => {
+      throw Object.assign(new Error('Operation not permitted'), { code: 'EPERM' });
+    });
+
+    const result = await terminator.stop(createMockProc(), { immediate: false });
+
+    expect(result.requested).toBe(false);
+    expect(result.via).toBe('cooperative');
+    expect(result.error).toContain('SIGTERM 未送达');
+    // 日志是本地唯一的事后追溯通道（返回契约还会被旧调用方丢弃）
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('EPERM'));
+  });
+
+  it('B3：grace 超时后 SIGKILL 也失败 → requested:false + 原因', async () => {
+    const terminator = createPosixTerminator({ graceMs: 1000 });
+    const proc = createMockProc();
+    // SIGTERM 送达，grace 内未退出，SIGKILL 被拒
+    killSpy.mockImplementationOnce(() => true);
+    killSpy.mockImplementationOnce(() => {
+      throw Object.assign(new Error('Operation not permitted'), { code: 'EPERM' });
+    });
+
+    const stopPromise = terminator.stop(proc, { immediate: false });
+    await vi.advanceTimersByTimeAsync(1000);
+    const result = await stopPromise;
+
+    expect(result).toEqual({
+      requested: false,
+      via: 'taskkill',
+      error: expect.stringContaining('SIGKILL 未送达'),
+    });
+  });
+
   it('已退出 / 无 pid → already-exited，一个信号都不发', async () => {
     const terminator = createPosixTerminator({ graceMs: 5000 });
     await expect(
@@ -106,31 +140,5 @@ describe('createPosixTerminator', () => {
     killSpy.mockClear();
     terminator.cleanupOnExit(createMockProc({ exitCode: 0 }));
     expect(killSpy).not.toHaveBeenCalled();
-  });
-});
-
-describe('ProcessStopper（既有调用方兼容壳）', () => {
-  let killSpy: ReturnType<typeof vi.spyOn>;
-
-  beforeEach(() => {
-    vi.useFakeTimers();
-    killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
-    vi.clearAllMocks();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-    killSpy.mockRestore();
-  });
-
-  it('保留原契约：返回 void、接受 null proc', async () => {
-    const stopper = new ProcessStopper({ graceMs: 5000 });
-    await expect(stopper.stop(null)).resolves.toBeUndefined();
-
-    const proc = createMockProc();
-    const stopPromise = stopper.stop(proc);
-    emitExit(proc, 0, null);
-    await expect(stopPromise).resolves.toBeUndefined();
-    expect(killSpy).toHaveBeenCalledWith(-12345, 'SIGTERM');
   });
 });

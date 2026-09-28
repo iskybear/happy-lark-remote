@@ -2,16 +2,11 @@ import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vites
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { mockLogger } from '../../tests/lib/logger-mock.js';
 
 // 直接在模块顶层定义 mock（兼容 bun 的 vitest）。
 // 生产代码经 platform/spawn（cross-spawn）调用 codex，mock 该 seam。
 const mockSpawnSync = vi.fn();
-const mockLogger = {
-  debug: vi.fn(),
-  info: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
-};
 
 vi.mock('../platform/spawn.js', () => ({
   spawnProcessSync: (...args: any[]) => mockSpawnSync(...args),
@@ -19,10 +14,9 @@ vi.mock('../platform/spawn.js', () => ({
     throw new Error('sync test must not spawn async');
   },
 }));
-vi.mock('../logger/index.js', () => ({
-  getLogger: () => mockLogger,
-  initLogger: () => mockLogger,
-}));
+vi.mock('../logger/index.js', async () =>
+  (await import('../../tests/lib/logger-mock.js')).loggerModuleMock(),
+);
 
 import { resolveCodexHome, loadCodexConfig, invalidateCodexBundledCache } from './codex-config.js';
 import {
@@ -97,6 +91,20 @@ describe('resolveCodexHome', () => {
   it('falls back to ~/.codex when neither argument nor $CODEX_HOME set', () => {
     delete process.env.CODEX_HOME;
     expect(resolveCodexHome()).toBe(path.join(os.homedir(), '.codex'));
+  });
+
+  it('空串/纯空白不算「已设置」：落回 ~/.codex，且结果恒为绝对路径', () => {
+    // `??` 只挡 undefined：`CODEX_HOME=''` 会带着空串往下走，
+    // path.join('', 'config.toml') 变成相对**进程 cwd** 的路径——同一个
+    // resolveCodexHome 在两种启动目录下解析出两个不同文件（红线：路径解析单源）。
+    for (const value of ['', '   ']) {
+      process.env.CODEX_HOME = value;
+      expect(resolveCodexHome()).toBe(path.join(os.homedir(), '.codex'));
+    }
+    process.env.CODEX_HOME = '/from-env';
+    expect(resolveCodexHome('')).toBe('/from-env');
+    expect(resolveCodexHome('  /from-env  ')).toBe('/from-env');
+    expect(path.isAbsolute(path.join(resolveCodexHome(''), 'config.toml'))).toBe(true);
   });
 });
 

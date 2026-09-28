@@ -2,7 +2,8 @@
  * 占位符剥离表驱动测试。
  *
  * 输入串直接取自 `docs/zh/architecture/inbound-message-matrix.md` §1 的
- * `@larksuite/channel@0.3.0` 实测渲染结果（22 种 message_type）。
+ * `@larksuite/channel@0.7.1` 实测渲染结果（22 种 message_type + post
+ * 顶层附件区 / 合并转发抓取失败态两个增量变体）。
  * 这是 B1（P0 安全）的守护测试：任何以占位符开头的消息都不能被当成命令判据。
  */
 import { describe, it, expect } from 'vitest';
@@ -65,6 +66,18 @@ describe('stripPlaceholders 全类型矩阵（matrix §1 实测渲染串）', ()
       raw: '<forwarded_messages/>',
       clean: '',
       kinds: ['forwarded'],
+    },
+    {
+      name: 'merge_forward（子消息抓取失败态，0.4.1+ 带属性自闭合）',
+      raw: '<forwarded_messages status="fetch_failed"/>',
+      clean: '',
+      kinds: ['forwarded'],
+    },
+    {
+      name: 'post（富文本顶层附件区，0.6.0+）',
+      raw: '**T**\n\n看一下附件\n<file key="file_v3_a" name="report.pdf"/>\n<folder key="file_v3_b" name="folder"/>',
+      clean: '**T**\n\n看一下附件',
+      kinds: ['file', 'folder'],
     },
     { name: 'interactive', raw: '[interactive card]', clean: '', kinds: ['unsupported'] },
     {
@@ -136,10 +149,29 @@ describe('stripPlaceholders 顺序与语义', () => {
     expect(result.unknownTags).toEqual(['newcard']);
   });
 
-  it('未知成对标签整块剥离', () => {
-    const result = stripPlaceholders('<newwidget kind="x">内部噪声</newwidget>\n正文');
-    expect(result.clean).toBe('正文');
+  it('未知成对标签只剥标签、保留用户正文', () => {
+    // 成对未知标签的内文本**有用户语义**（`<b>重点内容</b>` 是用户手打的强调），
+    // 整块吃掉 = agent 拿到残缺输入而用户无从察觉。与 AT_TAG_RE / forwarded 同口径。
+    const result = stripPlaceholders('<newwidget kind="x">内部正文</newwidget>\n正文');
+    expect(result.clean).toBe('内部正文\n正文');
     expect(result.unknownTags).toEqual(['newwidget']);
+    expect(result.kinds).toEqual(['unknown']);
+  });
+
+  it('成对未知标签保留内文本（用户手打的 HTML 标签）', () => {
+    expect(stripPlaceholders('看这段 <b>重点内容</b> 谢谢').clean).toBe('看这段 重点内容 谢谢');
+    expect(stripPlaceholders('日志里 <info>disk full</info> 出现了').clean).toBe(
+      '日志里 disk full 出现了',
+    );
+  });
+
+  it('多个成对未知标签非贪婪，不吞中间文本', () => {
+    expect(stripPlaceholders('<a>1</a>中间<b>2</b>').clean).toBe('1中间2');
+  });
+
+  it('成对未知标签仍不误伤数学符号与无属性裸标签', () => {
+    expect(stripPlaceholders('a < b 且 c <3').clean).toBe('a < b 且 c <3');
+    expect(stripPlaceholders('<div>正文').clean).toBe('<div>正文');
   });
 
   it('自己的 <attachments> 协议块原样保留（否则 agent 会丢附件路径）', () => {

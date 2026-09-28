@@ -2,19 +2,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { makeQueueManager } from '../../lib/bridge-stubs.js';
 import { sleep, waitFor } from '../../lib/wait-for.js';
 
-const { mockLogger } = vi.hoisted(() => ({
-  mockLogger: {
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
-}));
-
-vi.mock('../../../src/logger/index.js', () => ({
-  getLogger: () => mockLogger,
-  initLogger: () => mockLogger,
-}));
+vi.mock('../../../src/logger/index.js', async () =>
+  (await import('../../lib/logger-mock.js')).loggerModuleMock(),
+);
 
 const WORKSPACE = '/tmp/queue-card-arm-nometa-anchor-ws';
 
@@ -105,8 +95,8 @@ describe('QueueManager - queue card for a meta task enqueued while an interrupte
       },
     );
     await sleep(50);
-    // 当前实现：T2 无 messageId，begin 路径不重新武装计数（count 仍 0），
-    // T3 入队时 hasWaitingTasks=false → 不发卡。这里必须真红（期望 1 张，实得 0）。
+    // 修复前：T2 无 messageId，begin 路径不重新武装计数（count 仍 0），
+    // T3 入队时 hasWaitingTasks=false → 不发卡。本用例钉住（期望 1 张，实得 0）。
     expect(sentCards.length).toBe(1);
 
     // --- 清理：放行 T2、T3，让队列链自然收尾 ---

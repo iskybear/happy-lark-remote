@@ -2,19 +2,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { makeQueueManager } from '../../lib/bridge-stubs.js';
 import { sleep, waitFor } from '../../lib/wait-for.js';
 
-const { mockLogger } = vi.hoisted(() => ({
-  mockLogger: {
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
-}));
-
-vi.mock('../../../src/logger/index.js', () => ({
-  getLogger: () => mockLogger,
-  initLogger: () => mockLogger,
-}));
+vi.mock('../../../src/logger/index.js', async () =>
+  (await import('../../lib/logger-mock.js')).loggerModuleMock(),
+);
 
 const WORKSPACE = '/tmp/queue-card-arm-countleak-anchor-ws';
 
@@ -147,8 +137,8 @@ describe('QueueManager - no fake queue card when queue is idle after repeated in
     expect(await waitFor(() => t4Ran)).toBe(true);
     await sleep(50);
 
-    // 当前实现：count 泄漏为 1 → T4 入队时 hasWaitingTasks=true → 发假排队卡
-    // （共 3 张）。这里必须真红（期望 2 张）。
+    // 修复前：count 泄漏为 1 → T4 入队时 hasWaitingTasks=true → 发假排队卡
+    // （共 3 张）。本用例钉住（期望 2 张）。
     expect(sentCards.length).toBe(2);
   });
 });

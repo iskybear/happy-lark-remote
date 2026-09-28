@@ -42,13 +42,7 @@ import {
   clearSessionIndexCache,
 } from '../../../src/session/codex/rollout-reader.js';
 
-const { mockLogger, state } = vi.hoisted(() => ({
-  mockLogger: {
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
+const { state } = vi.hoisted(() => ({
   // Scripted readdirSync results keyed by absolute directory path —
   // deterministic simulation of APFS hash order.
   state: {
@@ -56,10 +50,9 @@ const { mockLogger, state } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('../../../src/logger/index.js', () => ({
-  getLogger: () => mockLogger,
-  initLogger: () => mockLogger,
-}));
+vi.mock('../../../src/logger/index.js', async () =>
+  (await import('../../lib/logger-mock.js')).loggerModuleMock(),
+);
 
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
@@ -150,7 +143,7 @@ describe('codex listCodexRollouts global-newest + total', () => {
 
     // total = cwd 精确匹配的全集大小（分页前）：50 + 1，不含 /other 的 2 个。
     expect(result.total).toBe(51);
-    // entries = 全局最新 limit 条（当前实现返回数组，无 total → 真红）。
+    // entries = 全局最新 limit 条（修复前只返回裸数组、没有 total）。
     expect(result.entries).toHaveLength(20);
     // 全局最新必须是 day 31 的会话；若只补 total 不修排序，这里照样拦住。
     expect(result.entries[0].threadId).toBe(newestSessionId);

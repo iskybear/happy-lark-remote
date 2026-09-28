@@ -24,6 +24,7 @@ import {
 } from '../../tests/lib/bridge-stubs.js';
 import { expectNoV1ActionContainer } from '../../tests/lib/card-view.js';
 import { rmRf } from '../../tests/lib/tmp-cleanup.js';
+import { canLinkFiles, linkDangling, linkDir, linkFile } from '../../tests/lib/fs-links.js';
 
 const ctx = { userId: 'user1', chatId: 'chat1', messageId: 'msg1' };
 
@@ -289,7 +290,8 @@ describe('/ws 关键词筛选', () => {
     });
     const text = allText(wsCardOf(router, 'alpha'));
     expect(text).toContain('**one**');
-    expect(text).not.toContain('two');
+    // 用列表行的 `**name**` 形态做负断言：整卡文本含 cwd 表头，随机后缀能拼出 "two"。
+    expect(text).not.toContain('**two**');
   });
 
   it('筛选后零命中：无匹配提示 + 搜索行仍在 + 无分页栏', () => {
@@ -590,11 +592,16 @@ describe('ws.filter / ls.filter handler', () => {
 
     await router.handleCardAction({ cmd: 'ws.filter', inputValue: 'work', offset: 5 }, ctx);
     const card = lastUpdatedCard(connector);
-    const text = allText(card);
-    expect(text).toContain('**1/2**');
-    // recent 排序（lastUsedAt 递增）下第 1 页是 w8..w4，第 2 页才是 w3..w1
-    expect(text).toContain('w8');
-    expect(text).not.toContain('w1');
+    expect(allText(card)).toContain('**1/2**');
+    // recent 排序（lastUsedAt 递增）下第 1 页是 w8..w4，第 2 页才是 w3..w1。
+    // 断言落在列表条目上而不是整卡文本：表头带 cwd，mkdtemp 随机后缀能拼出 "w1"。
+    expect(payloadsForCmd(card, 'ws.use', 'button').map((p) => p.name)).toEqual([
+      'w8',
+      'w7',
+      'w6',
+      'w5',
+      'w4',
+    ]);
   });
 
   it('筛选态翻页保留 q', async () => {
@@ -672,3 +679,52 @@ function lsFixtureForToctou() {
   fs.rmSync(path.join(fixture.root, 'foo_dir'), { recursive: true });
   return fixture;
 }
+
+describe('/ls 符号链接与坏条目（B5）', () => {
+  // 目录链接走 linkDir：win32 无符号链接特权时自动降级 junction，Dirent 语义与真符号
+  // 链接等价 → 本用例在任意宿主都真跑，不需要门控（tests/lib/fs-links.ts 有论证）。
+  it('链接目录按目标归类：可进入（旧实现 Dirent 报不出类型 → 整条丢失）', () => {
+    const { router, root } = makeFixture({ dirs: ['real_dir'], files: ['target.txt'] });
+    fs.writeFileSync(path.join(root, 'target.txt'), 'hello world!');
+    linkDir(path.join(root, 'real_dir'), path.join(root, 'link_dir'));
+
+    const card = lsCardOf(router);
+    const text = allText(card);
+    // 旧实现：Dirent.isSymbolicLink 既不是 dir 也不是 file → 链接根本不出现
+    expect(text).toContain('link_dir');
+    expect(text).toContain('共 2 目录, 1 文件');
+    // 链接目录归类为目录才会带 ls.browse（点进去）；文件按钮才是 ls.file
+    const browsePaths = payloadsForCmd(card, 'ls.browse', 'button').map((v) =>
+      String(v.path ?? ''),
+    );
+    expect(browsePaths).toContain(path.join(root, 'link_dir'));
+    expectNoV1ActionContainer(card);
+  });
+
+  // 文件链接没有免特权的等价物（junction 只支持目录，硬链接不是 reparse point）→
+  // 无 SeCreateSymbolicLinkPrivilege 的 win32 上进能力探测门控（有特权的 win32 与 posix 照跑）。
+  it.skipIf(!canLinkFiles())('链接文件按目标归类：带大小', () => {
+    const { router, root } = makeFixture({ files: ['target.txt'] });
+    fs.writeFileSync(path.join(root, 'target.txt'), 'hello world!');
+    linkFile(path.join(root, 'target.txt'), path.join(root, 'link_file.txt'));
+
+    const text = allText(lsCardOf(router));
+    expect(text).toContain('link_file.txt');
+    expect(text).toContain('共 0 目录, 2 文件');
+    // 大小取自 stat 解析的目标（12B），不是 lstat 的链接本身
+    expect(text).toContain('link_file.txt (12B)');
+  });
+
+  // 悬空链接走 linkDangling：junction 建链不校验目标存在，win32 上同语义可见 → 不门控。
+  it('悬空符号链接照常列出，不让整次 /ls 变成「读取目录失败」', () => {
+    const { router, root } = makeFixture({ files: ['keep.txt'] });
+    linkDangling(path.join(root, 'nowhere.bin'), path.join(root, 'dangling.bin'));
+
+    const text = allText(lsCardOf(router));
+    // stat 失败只让该条目降级（无大小），其余条目必须还在
+    expect(text).toContain('dangling.bin');
+    expect(text).toContain('keep.txt');
+    expect(text).toContain('共 0 目录, 2 文件');
+    expect(text).not.toContain('读取目录失败');
+  });
+});

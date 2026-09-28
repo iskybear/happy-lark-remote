@@ -15,19 +15,11 @@ import {
   getCodexBundledModels,
   invalidateCodexBundledTestCache,
 } from '../../lib/codex-bundled-test-helpers.js';
-import path from 'node:path';
-import os from 'node:os';
 import fs from 'node:fs';
+import { makeTempDir } from '../../lib/temp-dir.js';
+import { mockLogger } from '../../lib/logger-mock.js';
 
-const { mockSpawnSync, mockLogger } = vi.hoisted(() => ({
-  mockSpawnSync: vi.fn(),
-  mockLogger: {
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
-}));
+const { mockSpawnSync } = vi.hoisted(() => ({ mockSpawnSync: vi.fn() }));
 
 vi.mock('../../../src/platform/spawn.js', () => ({
   // 兼容历史 mock 形态：返回 string/Buffer 视为成功 stdout，抛错/其余原样穿透
@@ -42,10 +34,9 @@ vi.mock('../../../src/platform/spawn.js', () => ({
     throw new Error('anchor test must not spawn async');
   },
 }));
-vi.mock('../../../src/logger/index.js', () => ({
-  getLogger: () => mockLogger,
-  initLogger: () => mockLogger,
-}));
+vi.mock('../../../src/logger/index.js', async () =>
+  (await import('../../lib/logger-mock.js')).loggerModuleMock(),
+);
 
 /** Bundled JSON with reasoning levels */
 const BUNDLED_JSON_WITH_REASONING = JSON.stringify({
@@ -280,7 +271,7 @@ describe('P2-2: reasoning effort functions read bundled catalog', () => {
     mockLogger.warn.mockReset();
     invalidateCodexBundledCache();
     oldCodexHome = process.env.CODEX_HOME;
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-effort-binary-'));
+    tmpDir = makeTempDir('codex-effort-binary-');
     process.env.CODEX_HOME = tmpDir;
   });
 
@@ -400,7 +391,7 @@ const MODEL_SWITCH_BUNDLED_JSON = JSON.stringify({
   ],
 });
 
-const modelSwitchTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-model-switch-test-'));
+const modelSwitchTmpDir = makeTempDir('codex-model-switch-test-');
 
 describe('Config card codex model switch reasoning adjustment - anchor', () => {
   beforeEach(() => {
@@ -412,7 +403,6 @@ describe('Config card codex model switch reasoning adjustment - anchor', () => {
 
   afterEach(() => {
     fs.rmSync(modelSwitchTmpDir, { recursive: true, force: true });
-    fs.mkdirSync(modelSwitchTmpDir, { recursive: true });
   });
 
   it('test_anchor_model_switch_resets_unsupported_reasoning_effort', () => {

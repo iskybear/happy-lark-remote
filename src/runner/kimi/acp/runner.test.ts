@@ -565,33 +565,22 @@ describe('KimiAcpRunner', () => {
 
     const events = await collectEvents(runner, 'list files', { cwd: workspace });
 
-    // Should have tool_use in assistant events
-    const toolUse = events.find(
-      (e) =>
-        e.type === 'assistant' &&
-        'message' in e &&
-        Array.isArray(
-          (e as { message?: { content?: Array<{ type?: string }> } }).message?.content,
-        ) &&
-        (e as { message: { content: Array<{ type: string }> } }).message.content.some(
-          (c) => c.type === 'tool_use',
-        ),
-    );
-    expect(toolUse).toBeDefined();
-
-    // Should have tool_result in user events
-    const toolResult = events.find(
-      (e) =>
-        e.type === 'user' &&
-        'message' in e &&
-        Array.isArray(
-          (e as { message?: { content?: Array<{ type?: string }> } }).message?.content,
-        ) &&
-        (e as { message: { content: Array<{ type: string }> } }).message.content.some(
-          (c) => c.type === 'tool_result',
-        ),
-    );
-    expect(toolResult).toBeDefined();
+    // 只断言「存在 tool_use/tool_result」不算断言：translator 把 id/name/input
+    // 和 tool_use_id/content/is_error 映射错了也照样绿。锁事件通道 + 整个 block。
+    const blocksOf = (kind: string) =>
+      events
+        .filter((e) => e.type === kind)
+        .flatMap(
+          (e) =>
+            (e as { message?: { content?: Array<Record<string, unknown>> } }).message?.content ??
+            [],
+        );
+    expect(blocksOf('assistant').filter((b) => b.type === 'tool_use')).toEqual([
+      { type: 'tool_use', id: 'tc-001', name: 'Read', input: { file_path: 'a.ts' } },
+    ]);
+    expect(blocksOf('user').filter((b) => b.type === 'tool_result')).toEqual([
+      { type: 'tool_result', tool_use_id: 'tc-001', content: 'a.ts', is_error: false },
+    ]);
 
     await runner.dispose();
   });
@@ -626,6 +615,42 @@ describe('KimiAcpRunner', () => {
       (AgentEvent & { subtype?: string }) | undefined;
     expect(result).toBeDefined();
     expect(result?.subtype).toBe('success');
+
+    await runner.dispose();
+  });
+
+  it('B1：轮次结束时未答审批作废，跨轮迟到的点击不回信到无关请求', async () => {
+    // 验证什么：clearTurnState() 清掉 pendingApprovals。回归：这张 Map 按
+    // workspace 长驻，轮次结束后未答的审批条目还在，而 currentClient 仍指向
+    // 池化连接——用户点旧卡片的「同意」会给一条服务端早已放弃（或 id 重号后
+    // 属于别的方法）的请求回信。
+    const capturePath = join(tmpDir, 'b1-stale-approval.jsonl');
+    const { wrapper, workspace } = writeScenario(tmpDir, serverScript, 'kimi', {
+      sendApproval: true,
+      capturePath,
+    });
+
+    const runner = new KimiAcpRunner({
+      kind: 'kimi',
+      sessionReader: createStubSessionReader(),
+      binary: wrapper,
+      acpArgs: [],
+      permissionMode: 'manual',
+      turnIdleTimeoutMs: 30_000,
+    });
+
+    let sawApproval = false;
+    await collectEvents(runner, 'do something', { cwd: workspace }, (event) => {
+      if (event.type === 'approval_requested') sawApproval = true;
+    });
+    // 本轮没答：条目必须随轮次一起作废
+    expect(sawApproval).toBe(true);
+    await runner.respondApproval(42, { action: 'accept' });
+
+    const responseFrames = readCapture(capturePath).filter(
+      (f) => f.id === 42 && f.method === undefined,
+    );
+    expect(responseFrames).toHaveLength(0);
 
     await runner.dispose();
   });
@@ -896,9 +921,92 @@ describe('KimiAcpRunner', () => {
     await runner.dispose();
   });
 
+  it('A5：把配置的思考强度下发为 session/set_config_option configId=thinking', async () => {
+    // 卡片可存可回显但 runner 从不读取 → 三档全无效（R4 只写不读）。
+    // 线形来自真机采样（kimi 0.43.1）：session/new 通告
+    // `{id:'thinking', category:'thought_level', options:[low|high|max]}`，
+    // 下发后服务端回 `{configOptions:[...currentValue:'low'...]}`；
+    // 未知 configId / 非法取值回 -32602（不会静默接受）。
+    const capturePath = join(tmpDir, 'thinking-capture.jsonl');
+    const { wrapper, workspace } = writeScenario(tmpDir, serverScript, 'kimi', {
+      capturePath,
+      configOptions: [
+        {
+          id: 'thinking',
+          name: 'Thinking',
+          category: 'thought_level',
+          type: 'select',
+          currentValue: 'max',
+          options: [
+            { value: 'low', name: 'Thinking Low' },
+            { value: 'high', name: 'Thinking High' },
+            { value: 'max', name: 'Thinking Max' },
+          ],
+        },
+      ],
+    });
+
+    const runner = new KimiAcpRunner({
+      kind: 'kimi',
+      sessionReader: createStubSessionReader(),
+      binary: wrapper,
+      acpArgs: [],
+      permissionMode: 'manual',
+      model: 'kimi-code/k3',
+      thinkingEffort: 'low',
+      turnIdleTimeoutMs: 30_000,
+    });
+
+    const events = await collectEvents(runner, 'hello', { cwd: workspace });
+    const result = events.find((e) => e.type === 'result') as
+      (AgentEvent & { subtype?: string }) | undefined;
+    expect(result?.subtype).toBe('success');
+
+    const frames = readFileSync(capturePath, 'utf-8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { method?: string; params?: Record<string, unknown> })
+      .filter((m) => m.method === 'session/set_config_option');
+    expect(frames.map((f) => f.params)).toEqual([
+      expect.objectContaining({ configId: 'model', value: 'kimi-code/k3' }),
+      expect.objectContaining({ sessionId: SESSION_ID, configId: 'thinking', value: 'low' }),
+    ]);
+
+    await runner.dispose();
+  });
+
+  it('A5：未配置思考强度时不发 thinking 帧（不覆盖服务端默认档）', async () => {
+    const capturePath = join(tmpDir, 'thinking-absent-capture.jsonl');
+    const { wrapper, workspace } = writeScenario(tmpDir, serverScript, 'kimi', { capturePath });
+
+    const runner = new KimiAcpRunner({
+      kind: 'kimi',
+      sessionReader: createStubSessionReader(),
+      binary: wrapper,
+      acpArgs: [],
+      permissionMode: 'manual',
+      model: 'kimi-code/k3',
+      turnIdleTimeoutMs: 30_000,
+    });
+
+    await collectEvents(runner, 'hello', { cwd: workspace });
+
+    const configIds = readFileSync(capturePath, 'utf-8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { method?: string; params?: { configId?: unknown } })
+      .filter((m) => m.method === 'session/set_config_option')
+      .map((m) => m.params?.configId);
+    expect(configIds).toEqual(['model']);
+
+    await runner.dispose();
+  });
+
   it('cancels approval with cancelled outcome', async () => {
+    const capturePath = join(tmpDir, 'approval-cancel-capture.jsonl');
     const { wrapper, workspace } = writeScenario(tmpDir, serverScript, 'kimi', {
       sendApproval: true,
+      capturePath,
     });
 
     const runner = new KimiAcpRunner({
@@ -910,20 +1018,21 @@ describe('KimiAcpRunner', () => {
       turnIdleTimeoutMs: 30_000,
     });
 
-    const events = await collectEvents(
-      runner,
-      'do something',
-      { cwd: workspace },
-      async (event) => {
-        if (event.type === 'approval_requested') {
-          await runner.respondApproval(event.requestId, { action: 'cancel' });
-        }
-      },
-    );
+    let approvalResponded = false;
+    await collectEvents(runner, 'do something', { cwd: workspace }, async (event) => {
+      if (event.type === 'approval_requested') {
+        await runner.respondApproval(event.requestId, { action: 'cancel' });
+        approvalResponded = true;
+      }
+    });
 
-    const result = events.find((e) => e.type === 'result') as
-      (AgentEvent & { subtype?: string }) | undefined;
-    expect(result).toBeDefined();
+    // 「cancel」的语义在线上：cancelled outcome。只断言有 result 事件抓不住
+    // 误接成 accept/decline（那三种都会让 prompt 正常结束）。
+    expect(approvalResponded).toBe(true);
+    const cancelResponse = readCapture(capturePath).find(
+      (m) => m.id === 42 && m.method === undefined,
+    );
+    expect(cancelResponse?.result).toEqual({ outcome: { outcome: 'cancelled' } });
 
     await runner.dispose();
   });
@@ -1869,7 +1978,11 @@ describe('KimiAcpRunner', () => {
       });
       const { events, done } = startRunCompactCollect(runner, workspace);
 
-      const result = await waitForResult(events, 5000);
+      // 预算给足（15s，与本文件其它用例上限对齐）：这里等的是「最终是否会产出
+      // error result」这一语义，不是延迟。`compactIdleTimeoutMs: 1000` 只是空闲窗口
+      // 长度；8 worker 并行时子进程 spawn 与定时器都会被拉伸（本文件单跑已 72s），
+      // 5s 预算曾在全量并行下等不到结果 → `undefined toBe 'error'` 假红。
+      const result = await waitForResult(events, 15000);
       if (!result) await runner.stop();
       await done;
 
@@ -1902,5 +2015,38 @@ describe('KimiAcpRunner', () => {
 
       await runner.dispose();
     }, 15000);
+
+    it('A7：prompt 挂住不 settle 时语义等待照样武装 → 沉默窗口到点报「压缩状态未知」', async () => {
+      // 验证什么：compact 语义判定（waitForCompactionTerminal）在 prompt 触发时
+      // 就武装，不等 prompt 结算。回归：判定挂在 promptPromise.then 里，引擎
+      // hold 住 session/prompt 时用户只能等通用 turnIdleTimeout（默认 30min）拿
+      // 一个语义泛化的 turn 超时，拿不到「压缩状态未知 / 可重试」。
+      const { wrapper, workspace } = writeScenario(tmpDir, serverScript, 'kimi', {
+        holdPromptUntilCancel: true,
+      });
+      const { kimiDir } = makeKimiSessionDir(workspace);
+      const runner = new KimiAcpRunner({
+        kind: 'kimi',
+        sessionReader: new KimiSessionReader(kimiDir),
+        binary: wrapper,
+        acpArgs: [],
+        // 通用 turn 兜底远大于沉默窗口：到点只可能是 compact 语义路径产出的结果。
+        turnIdleTimeoutMs: 30_000,
+        compactIdleTimeoutMs: 1000,
+      });
+      const { events, done } = startRunCompactCollect(runner, workspace);
+
+      const startedAtMs = Date.now();
+      const result = await waitForResult(events, 6000);
+      const elapsedMs = Date.now() - startedAtMs;
+      if (!result) await runner.stop();
+      await done;
+
+      expect(result?.subtype).toBe('error');
+      expect(result?.errorMessage).toContain('压缩状态未知');
+      expect(elapsedMs).toBeLessThan(6000);
+
+      await runner.dispose();
+    }, 20000);
   });
 });

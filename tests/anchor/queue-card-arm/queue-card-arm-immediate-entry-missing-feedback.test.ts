@@ -16,19 +16,11 @@ import {
   createStubRunner,
   createStubConnector,
 } from '../../lib/bridge-stubs.js';
-const { mockLogger } = vi.hoisted(() => ({
-  mockLogger: {
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
-}));
+import { mockLogger } from '../../lib/logger-mock.js';
 
-vi.mock('../../../src/logger/index.js', () => ({
-  getLogger: () => mockLogger,
-  initLogger: () => mockLogger,
-}));
+vi.mock('../../../src/logger/index.js', async () =>
+  (await import('../../lib/logger-mock.js')).loggerModuleMock(),
+);
 
 /** Same stub connector pattern as tests/anchor/queue-card-arm/queue-card-arm-immediate-cancel-toast.test.ts. */
 
@@ -197,8 +189,8 @@ describe('queue.immediate entry-time missing target must not claim the queue was
     // 前置：T3 必须保持排队（A13：目标已 begin 时不清除排在目标之后的任务）。
     expect(bridge.getQueuedTask(tmpDir, 'm3')).toBeDefined();
 
-    // 当前实现：发送 "该消息已开始执行，无法立即执行。队列已清空。"——队列
-    // 实际未被清空（T3 仍在），这里必须真红：反馈不得声称"队列已清空"。
+    // 修复前：发送 "该消息已开始执行，无法立即执行。队列已清空。"——队列
+    // 实际未被清空（T3 仍在），本用例钉住：反馈不得声称"队列已清空"。
     expect(sentTexts.some((t) => t.includes('队列已清空'))).toBe(false);
     // 同时也不得承诺执行（A12 同族约束）。
     expect(sentTexts.some((t) => t.includes('您的消息将立即执行'))).toBe(false);

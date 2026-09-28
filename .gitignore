@@ -57,6 +57,9 @@ pnpm-lock.yaml
 
 .workbuddy/
 
+# 本机诊断/验收探针临时目录（可随时重建，不入库）
+.probe-tmp/
+
 # 内部工作文档与本地草稿（不入库）
 docs/**/*-plan.md
 docs/**/*-analysis.md
@@ -66,7 +69,9 @@ docs/**/*-playbook.md
 docs/**/*-experiment.md
 docs/**/*-tasks.md
 docs/**/lessons-*.md
+docs/**/rules/
 docs/**/architecture/*-config.md
+docs/**/architecture/*-support-design*.md
 playbook*.md
 docs/feishu-card-*/
 docs/images/*.original.gif

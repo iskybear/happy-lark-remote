@@ -9,8 +9,8 @@
  * 修复：降级为 warn（保留诊断，不污染 error 级）。
  *
  * 这个 anchor 让 mock proc 的 stderr 连发多个 chunk，直调 spawnChild 后断言
- * mockLogger.error 没有为 stderr chunk 被调用（应改走 warn）。真红 = 当前
- * 实现每 chunk 一条 error 日志。
+ * mockLogger.error 没有为 stderr chunk 被调用（应改走 warn）。本用例守住的
+ * 失败模式：修复前每 chunk 一条 error 日志。
  *
  * W1.1 备注：spawnChild 保留 stderr handler，本 anchor 直调 spawnChild 钉住
  * 其日志级别语义。
@@ -20,14 +20,11 @@ import { SpawningRunner } from '../../../src/runner/common/spawning-runner.js';
 import type { SpawnOptions } from '../../../src/runner/types.js';
 import { Readable } from 'node:stream';
 import { createMockProc } from '../../../tests/lib/mock-process.js';
+import { mockLogger } from '../../lib/logger-mock.js';
 
-const { mockLogger } = vi.hoisted(() => ({
-  mockLogger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-}));
-vi.mock('../../../src/logger/index.js', () => ({
-  getLogger: () => mockLogger,
-  initLogger: () => mockLogger,
-}));
+vi.mock('../../../src/logger/index.js', async () =>
+  (await import('../../lib/logger-mock.js')).loggerModuleMock(),
+);
 vi.mock('../../../src/platform/spawn.js', () => ({
   useDetachedProcessGroup: vi.fn(() => true),
   spawnProcess: vi.fn(),
@@ -35,11 +32,15 @@ vi.mock('../../../src/platform/spawn.js', () => ({
   isWindowsCommandNotFoundLine: vi.fn(() => false),
 }));
 import { spawnProcess as spawn } from '../../../src/platform/spawn.js';
+import { makeTempDir } from '../../lib/temp-dir.js';
 
 class TestRunner extends SpawningRunner {
-  constructor() {
+  // pidDir 是 production 真会 mkdir + 写 pid 文件的位置。默认给本用例独占的
+  // mkdtemp 目录：固定 '/tmp/...' 在 win32 上会落到仓库外的 D:\tmp
+  // （跨进程共享 + 兜底 sweep 扫不到）。见 temp-dir-hygiene 守卫。
+  constructor(pidDir = makeTempDir('lark-p2-16-stderr-')) {
     super({
-      pidDir: '/tmp/p2-16-test',
+      pidDir,
       workspace: 'test',
       logTag: 'test-runner',
     });

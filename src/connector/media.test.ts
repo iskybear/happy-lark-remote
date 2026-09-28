@@ -2,11 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fs from 'node:fs';
 import { FeishuConnector, type InboundMediaMessage } from './index.js';
 import { AppConfigSchema } from '../config/index.js';
+import { mockLogger } from '../../tests/lib/logger-mock.js';
+import { writeSizedFile } from '../../tests/lib/sized-file.js';
 
-const { messageHandlers, downloadResourceToFile, mockLogger } = vi.hoisted(() => ({
+const { messageHandlers, downloadResourceToFile } = vi.hoisted(() => ({
   messageHandlers: new Map<string, (msg: unknown) => void>(),
   downloadResourceToFile: vi.fn(),
-  mockLogger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
 vi.mock('@larksuite/channel', () => ({
@@ -26,10 +27,9 @@ vi.mock('@larksuite/channel', () => ({
   }),
 }));
 
-vi.mock('../logger/index.js', () => ({
-  getLogger: () => mockLogger,
-  initLogger: () => mockLogger,
-}));
+vi.mock('../logger/index.js', async () =>
+  (await import('../../tests/lib/logger-mock.js')).loggerModuleMock(),
+);
 
 const config = AppConfigSchema.parse({
   feishu: { appId: 'app-id', appSecret: 'app-secret' },
@@ -159,6 +159,26 @@ describe('FeishuConnector inbound media 两阶段流程（先认证后下载）'
     expect((textMessages[0] as { rawContentType: string }).rawContentType).toBe('post');
   });
 
+  it('post 富文本顶层附件（0.6.0+）→ file 资源进媒体通道，正文同时转发', async () => {
+    const { detected, textMessages } = makeConnector();
+    fireMessage({
+      chatType: 'p2p',
+      senderId: 'user-1',
+      messageId: 'msg-post-file',
+      chatId: 'chat-1',
+      content: '**报告**\n\n看一下附件\n<file key="file_v3_att" name="report.pdf"/>',
+      rawContentType: 'post',
+      resources: [{ type: 'file', fileKey: 'file_v3_att', fileName: 'report.pdf' }],
+    });
+    await Promise.resolve();
+
+    expect(detected).toHaveLength(1);
+    expect(detected[0].resources).toEqual([
+      { type: 'file', kind: 'file', fileKey: 'file_v3_att', fileName: 'report.pdf' },
+    ]);
+    expect(textMessages).toHaveLength(1);
+  });
+
   it('未识别类型但带资源 → 照常下载 + warn（default-deny 而非 default-text）', async () => {
     const { detected } = makeConnector();
     fireMessage({
@@ -224,10 +244,9 @@ describe('FeishuConnector inbound media 两阶段流程（先认证后下载）'
     downloadResourceToFile.mockImplementation(
       async (_m: string, _k: string, _t: string, destPath: string) => {
         writtenTo = destPath;
-        fs.writeFileSync(
-          destPath,
-          Buffer.alloc((config.inboundMedia.maxFileSizeMb + 1) * 1024 * 1024),
-        );
+        // 门禁看的是 mock 自己返回的 bytesWritten，文件内容从不被读；这里保持
+        // 落盘 size 与声称值一致（稀疏文件），万一门禁改成读 stat 行为不变。
+        writeSizedFile(destPath, (config.inboundMedia.maxFileSizeMb + 1) * 1024 * 1024);
         return {
           contentType: 'application/pdf',
           bytesWritten: (config.inboundMedia.maxFileSizeMb + 1) * 1024 * 1024,
@@ -256,7 +275,7 @@ describe('FeishuConnector inbound media 两阶段流程（先认证后下载）'
     downloadResourceToFile.mockImplementation(
       async (_m: string, _k: string, _t: string, destPath: string) => {
         writtenTo = destPath;
-        fs.writeFileSync(destPath, Buffer.alloc(1024 * 1024 + 1));
+        writeSizedFile(destPath, 1024 * 1024 + 1);
         return { contentType: 'application/pdf', bytesWritten: 1024 * 1024 + 1 };
       },
     );
@@ -301,6 +320,56 @@ describe('FeishuConnector inbound media 两阶段流程（先认证后下载）'
       expect(payload.media).toHaveLength(0);
       expect(payload.failures).toHaveLength(1);
       expect(payload.failures[0].reason).toContain('timed out');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('下载超时不提前删文件：等这次传输自己结束后补删（否则 os.tmpdir 留孤儿）', async () => {
+    vi.useFakeTimers();
+    try {
+      const { connector } = makeConnector();
+      const unlink = vi.spyOn(fs, 'unlinkSync');
+      let writtenTo = '';
+      let finish: (() => void) | undefined;
+      downloadResourceToFile.mockImplementation(
+        (_m: string, _k: string, _t: string, destPath: string) => {
+          writtenTo = destPath;
+          return new Promise((resolve) => {
+            finish = () => {
+              fs.writeFileSync(destPath, 'late-bytes');
+              resolve({ contentType: 'application/pdf', bytesWritten: 10 });
+            };
+          });
+        },
+      );
+
+      const promise = connector.downloadInboundMedia(
+        {
+          userId: 'user-1',
+          chatId: 'chat-1',
+          messageId: 'msg-4d',
+          rawContentType: 'file',
+          resources: [
+            { type: 'file', kind: 'file', fileKey: 'file-key-4d', fileName: 'slow2.pdf' },
+          ],
+        },
+        { downloadTimeoutMs: 1000 },
+      );
+      await vi.advanceTimersByTimeAsync(1001);
+      const payload = await promise;
+
+      expect(payload.failures[0].reason).toContain('timed out');
+      // 超时当下不能 unlink：SDK 没有 abort 入参，这次传输还在往文件里写
+      // （win32 会因句柄占用重试到放弃、posix 只删掉目录项把空间留给未关的 fd）。
+      expect(unlink).not.toHaveBeenCalled();
+
+      expect(finish).toBeDefined();
+      finish?.(); // 传输迟到完成，文件真的落到 tmpdir
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fs.existsSync(writtenTo)).toBe(false);
+
+      unlink.mockRestore();
     } finally {
       vi.useRealTimers();
     }

@@ -48,6 +48,7 @@
     "src/router/file-limit.test.ts",
     "src/router/immediate-action.test.ts",
     "src/router/card-action-payload.test.ts",
+    "src/router/card-action-feedback.test.ts",
     "src/router/ls-file.test.ts",
     "src/router/paging-jump.test.ts",
     "src/router/download.test.ts",
@@ -114,7 +115,7 @@
     "tests/anchor/priority/p1-9-index-factories-workspace.test.ts",
     "tests/anchor/priority/p2-11-base-await-spawn-error-timeout.test.ts",
     "tests/anchor/priority/p2-13-spawn-failure-cause.test.ts",
-    "tests/anchor/priority/p2-15-process-stopper-grace-timer.test.ts",
+    "tests/anchor/priority/p2-15-terminator-grace-timer.test.ts",
     "tests/anchor/priority/p2-16-stderr-log-level.test.ts",
     "tests/anchor/misc/process-listener-leak.test.ts"
   ],
@@ -160,7 +161,8 @@
     "tests/anchor/priority/p2-19-logger-write-safety.test.ts",
     "tests/anchor/misc/restart-command.test.ts",
     "tests/anchor/misc/restart-wait-live-pid.test.ts",
-    "tests/misc/global-exception-handler.test.ts"
+    "tests/misc/global-exception-handler.test.ts",
+    "tests/misc/temp-dir-hygiene.test.ts"
   ],
   "agent-claude": [
     "src/runner/claude/**/*.test.ts",

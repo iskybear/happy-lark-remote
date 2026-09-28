@@ -18,14 +18,9 @@ vi.mock('@larksuite/channel', () => ({
   createLarkChannel: createLarkChannelMock,
 }));
 
-vi.mock('../logger/index.js', () => ({
-  getLogger: () => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  }),
-}));
+vi.mock('../logger/index.js', async () =>
+  (await import('../../tests/lib/logger-mock.js')).loggerModuleMock(),
+);
 
 import { FeishuConnector, DEDUP_TTL_MS } from './index.js';
 import type { AppConfig } from '../config/index.js';
@@ -69,5 +64,17 @@ describe('connector dedup TTL', () => {
       safety?: { dedup?: { ttl?: number } };
     };
     expect(arg.safety?.dedup?.ttl).toBe(DEDUP_TTL_MS);
+  });
+
+  it('opens p2p DMs without requiring an @mention', () => {
+    createLarkChannelMock.mockClear();
+
+    new FeishuConnector(config);
+
+    // 单 owner 私聊机器人：requireMention 一旦被改回 true，所有不带 @ 的消息静默丢弃。
+    const arg = createLarkChannelMock.mock.calls[0]?.[0] as {
+      policy?: { dmMode?: string; requireMention?: boolean };
+    };
+    expect(arg.policy).toEqual({ dmMode: 'open', requireMention: false });
   });
 });

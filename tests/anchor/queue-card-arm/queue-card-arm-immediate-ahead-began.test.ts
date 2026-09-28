@@ -16,20 +16,11 @@ import type { AgentRunner } from '../../../src/runner/index.js';
 import { AgentRegistry } from '../../../src/runner/registry.js';
 import { SessionReaderRegistry } from '../../../src/session/registry.js';
 import { sleep, waitFor } from '../../lib/wait-for.js';
+import { mockLogger } from '../../lib/logger-mock.js';
 
-const { mockLogger } = vi.hoisted(() => ({
-  mockLogger: {
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
-}));
-
-vi.mock('../../../src/logger/index.js', () => ({
-  getLogger: () => mockLogger,
-  initLogger: () => mockLogger,
-}));
+vi.mock('../../../src/logger/index.js', async () =>
+  (await import('../../lib/logger-mock.js')).loggerModuleMock(),
+);
 
 /**
  * Stub connector returning a UNIQUE card message id per sendWithRetry call,
@@ -210,15 +201,15 @@ describe('queue.immediate must not claim the target is executing when a task ahe
             (u.card as { header?: { title?: { content?: string } } }).header?.title?.content ===
               '▶️ 已开始执行',
         );
-        // 当前实现：markQueueCardExecuting(started=false) 时 T 仍在队列 →
-        // liveTask 存在 → T 的卡片被翻成已开始执行。必须真红。
+        // 修复前：markQueueCardExecuting(started=false) 时 T 仍在队列 →
+        // liveTask 存在 → T 的卡片被翻成已开始执行。
         expect(executingUpdatesForT).toHaveLength(0);
 
         const toastTexts = connector._sent
           .map((s) => (s.input as { text?: string }).text)
           .filter((t): t is string => !!t);
-        // 当前实现：步骤 6 的 finalTask 分支发
-        // "⚡ 已停止当前任务，清除了 0 条排队消息。您的消息将立即执行。"。必须真红。
+        // 修复前：步骤 6 的 finalTask 分支发
+        // "⚡ 已停止当前任务，清除了 0 条排队消息。您的消息将立即执行。"。
         expect(toastTexts.some((t) => t.includes('您的消息将立即执行'))).toBe(false);
       }
 

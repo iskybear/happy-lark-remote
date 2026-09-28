@@ -42,6 +42,7 @@ import {
 } from './router/index.js';
 import { dispatchOrderExecForQueue } from './router/order-exec-dispatch.js';
 import { buildCardActionFullValue } from './router/card-action-payload.js';
+import { actionFeedbackText } from './router/card-action-feedback.js';
 import { Bridge } from './bridge/index.js';
 import { initLogger, getLogger } from './logger/index.js';
 import { StartupContactStore, sendStartupHello } from './startup-contact.js';
@@ -161,13 +162,15 @@ async function initializeCliAndConfig(): Promise<{
 }
 
 /** Acquire instance lock and setup global exception handlers. */
-function setupInstanceLockAndHandlers(
+async function setupInstanceLockAndHandlers(
   instanceLock: InstanceLock,
   logger: ReturnType<typeof getLogger>,
   configDir: string,
-): void {
+): Promise<void> {
   try {
-    instanceLock.acquire();
+    // acquire 是异步的（身份校验走 platform/identity，win32 侧是异步 CIM 查询）：
+    // 必须 await，否则会在校验完成前就放行第二条实例。
+    await instanceLock.acquire();
   } catch (err) {
     if (err instanceof InstanceAlreadyRunningError) {
       logger.error(
@@ -342,6 +345,7 @@ function initializeRunner(
           ? acpConf.turnIdleTimeoutMinutes * 60_000
           : undefined,
       model: kimiConf?.model ?? 'kimi-code/k3',
+      thinkingEffort: kimiConf?.thinkingEffort,
       permissionMode: kimiConf?.permissionMode ?? 'manual',
     });
   });
@@ -422,7 +426,13 @@ function setupMessageHandlers(
       // 入队时刻（T0）快照 workspace + agent/session 绑定，语义与旧路径一致
       // （排队期间 /cd、/config 不再导致语义漂移）。
       const messageId = turn.messageIds[turn.messageIds.length - 1] ?? '';
-      const ctx = { userId: turn.userId, chatId: turn.chatId, messageId };
+      // turnMessageIds：终态收尾要覆盖本轮每一条消息（逐条挂的 Typing 得逐条撤）
+      const ctx = {
+        userId: turn.userId,
+        chatId: turn.chatId,
+        messageId,
+        turnMessageIds: turn.messageIds,
+      };
       let workspace = sessionStore.getCwd(turn.userId) ?? '';
       if (!workspace && workspaceStore) {
         const workspaces = workspaceStore.list();
@@ -736,15 +746,27 @@ function setupMessageHandlers(
       return;
     }
 
+    // B7：非直返命令到这里已经没有回调响应可回（enqueue* 是 fire-and-forget），
+    // handler 返回的 toast 必须显式转成持久文本，否则失败毫无反馈。
+    const forwardActionFeedback = (res: unknown) => {
+      const text = actionFeedbackText(res);
+      if (!text) return;
+      void bridge
+        .sendResult({ text }, { userId, chatId, messageId })
+        .catch((err: unknown) => logger.error('[control] card action feedback failed:', err));
+    };
+
     if (isImmediate) {
       bridge.enqueueImmediate(workspace, async () => {
-        await router.handleCardAction(fullValue, { userId, chatId, messageId });
+        const res = await router.handleCardAction(fullValue, { userId, chatId, messageId });
+        forwardActionFeedback(res);
       });
     } else {
       bridge.enqueue(
         workspace,
         async () => {
-          await router.handleCardAction(fullValue, { userId, chatId, messageId });
+          const res = await router.handleCardAction(fullValue, { userId, chatId, messageId });
+          forwardActionFeedback(res);
         },
         {
           taskMeta: {
@@ -805,7 +827,7 @@ async function main() {
   // lark-remote to die (and release the instance lock) before acquiring it.
   await waitForPreviousInstance();
 
-  setupInstanceLockAndHandlers(instanceLock, logger, configDir);
+  await setupInstanceLockAndHandlers(instanceLock, logger, configDir);
 
   // 阻止系统休眠（macOS caffeinate / Windows SetThreadExecutionState）：lark-remote
   // 的场景是人不在电脑前远程使用，系统休眠即失联。恒开启、无配置开关；helper 进程

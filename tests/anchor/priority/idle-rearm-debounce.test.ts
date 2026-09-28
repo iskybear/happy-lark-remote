@@ -5,19 +5,10 @@ import os from 'node:os';
 import type { AgentEvent, Runner } from '../../../src/runner/index.js';
 
 import { createStubRunner, makeBridge } from '../../lib/bridge-stubs.js';
-const { mockLogger } = vi.hoisted(() => ({
-  mockLogger: {
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
-}));
 
-vi.mock('../../../src/logger/index.js', () => ({
-  getLogger: () => mockLogger,
-  initLogger: () => mockLogger,
-}));
+vi.mock('../../../src/logger/index.js', async () =>
+  (await import('../../lib/logger-mock.js')).loggerModuleMock(),
+);
 /** A runner that yields a few events, then hangs forever until stop() releases it.
  *  Used to test that the idle watchdog still fires after some events were received. */
 interface EventThenHangRunner extends Runner {
@@ -121,12 +112,12 @@ describe('P2-1 idle watchdog re-arm debounce (anchor)', () => {
    *   + 1 个 interval，但拒绝"每事件 clearTimeout + setTimeout"的 N 次重建。
    *
    * 缺失导致什么（importance）:
-   *   现实现每非-result 事件都 clearTimeout + setTimeout（src/bridge/index.ts:832-928），
-   *   50 事件/秒 = 50 次 timer 重建 + 50 个闭包/秒。看门狗语义只需"15min 无事件才触发"，
-   *   不需要每事件 re-arm。§P2-1 推荐 interval 方案。
+   *   「每非-result 事件 clearTimeout + setTimeout」的实现（修复前 src/bridge/index.ts
+   *   即如此）在 50 事件/秒下 = 50 次 timer 重建 + 50 个闭包/秒。看门狗语义只需
+   *   "15min 无事件才触发"，不需要每事件 re-arm。§P2-1 推荐 interval 方案。
    *
-   * 当前状态：真红。30 个事件 → 30 次 watchdog setTimeout + ~3 次 cardSession timer
-   *           = ~33 次，远超上界 8。
+   * 现状：startIdleWatchdog 用单个 interval + touch() 更新时间戳，故 timer 数量与
+   *   事件数无关；本用例钉住这一点（修复前 30 事件 → ~33 次，远超上界 8）。
    */
   it('anchor: high-frequency event stream must not re-arm the idle timer per event (setTimeout calls << event count)', async () => {
     vi.useFakeTimers();
@@ -151,7 +142,7 @@ describe('P2-1 idle watchdog re-arm debounce (anchor)', () => {
       const setTimeoutCalls = setTimeoutSpy.mock.calls.length;
       // Upper bound independent of event count: cardSession timers
       // (start timeout, flush timer, settle timeout) ~3 + 1 interval = ~4.
-      // Allow headroom to 8. Current per-event re-arm = ~33 → must fail.
+      // Allow headroom to 8; per-event re-arm would be ~33.
       expect(setTimeoutCalls).toBeLessThanOrEqual(8);
       // Sanity: confirm we actually emitted N events (otherwise the bound
       // is trivially satisfied by an empty stream).
