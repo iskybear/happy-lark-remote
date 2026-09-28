@@ -198,7 +198,8 @@
     "tests/anchor/codex-session/codex-session-active-excludes-subagent.test.ts",
     "tests/anchor/codex-session/codex-session-reader-max-events.test.ts",
     "tests/anchor/codex-session/codex-reader-offset-boundary.test.ts",
-    "tests/anchor/approval-expiry/approval-expiry-integration-cancel.test.ts"
+    "tests/anchor/approval-expiry/approval-expiry-integration-cancel.test.ts",
+    "src/config/codex-config-reconcile.test.ts"
   ],
   "agent-opencode": [
     "src/runner/opencode/**/*.test.ts",

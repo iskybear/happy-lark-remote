@@ -24,7 +24,7 @@ import {
 } from './runner/index.js';
 import { AgentRegistry } from './runner/registry.js';
 import { probeAllAgents } from './runner/probe.js';
-import { warmCodexCatalogCache } from './config/codex-config.js';
+import { reconcileCodexModelSelection, warmCodexCatalogCache } from './config/codex-config.js';
 import { SessionReaderRegistry, SessionStore } from './session/index.js';
 import {
   ClaudeSessionReader,
@@ -247,11 +247,20 @@ function initializeRunner(
   const codexSessionReader = new CodexSessionReader({ codexHome: process.env.CODEX_HOME });
   agentRegistry.register('codex', (_ws: string) => {
     const codexConfig = getAgentConfig(latest(), 'codex');
+    const modelSelection = reconcileCodexModelSelection({
+      model: codexConfig?.model,
+      modelProvider: codexConfig?.modelProvider,
+    });
+    if (modelSelection.changed) {
+      getLogger().warn(
+        `[codex-config] reconciled stale bridge selection provider=${codexConfig?.modelProvider ?? '(none)'} model=${codexConfig?.model ?? '(none)'} -> provider=${modelSelection.modelProvider ?? '(none)'} model=${modelSelection.model ?? '(none)'}`,
+      );
+    }
     return new CodexAppServerRunner({
       unattended: latest().unattended,
       kind: 'codex',
-      model: codexConfig?.model,
-      modelProvider: codexConfig?.modelProvider,
+      model: modelSelection.model,
+      modelProvider: modelSelection.modelProvider,
       reasoningEffort: codexConfig?.reasoningEffort,
       sessionReader: codexSessionReader,
       sandbox: codexConfig?.sandbox,

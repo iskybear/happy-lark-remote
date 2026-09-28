@@ -659,6 +659,43 @@ export function loadCodexConfig(opts: LoadCodexConfigOpts = {}): CodexConfigResu
   }
 }
 
+/** Bridge-side saved model/provider selection that may be stale after codex config changes. */
+export interface CodexModelSelection {
+  model?: string;
+  modelProvider?: string;
+}
+
+/**
+ * Align a saved codex selection with the effective `~/.codex/config.toml`.
+ * cc-switch and the Codex TUI can replace the active provider (e.g. GLM's
+ * `narwal_transit_glm`), while an old bridge config may still name a removed
+ * provider. Keep valid selections untouched; otherwise fall back to codex's
+ * currently selected provider/model.
+ */
+export function reconcileCodexSelection(
+  selection: CodexModelSelection,
+  codexCfg: CodexConfigResult,
+): CodexModelSelection & { changed: boolean } {
+  // Only provider identity is authoritative here. A model absent from the active
+  // catalog is still legal as a custom model and must not be silently rewritten.
+  if (!selection.modelProvider || codexCfg.providerNames.includes(selection.modelProvider)) {
+    return { ...selection, changed: false };
+  }
+  return {
+    model: codexCfg.currentModel || undefined,
+    modelProvider: codexCfg.currentProvider || undefined,
+    changed: true,
+  };
+}
+
+/** Read codex config and reconcile a saved selection in one step. */
+export function reconcileCodexModelSelection(
+  selection: CodexModelSelection,
+  opts: LoadCodexConfigOpts = {},
+): CodexModelSelection & { changed: boolean } {
+  return reconcileCodexSelection(selection, loadCodexConfig(opts));
+}
+
 /**
  * Build model options for a provider.
  * - If provider specified: return that provider's models.

@@ -6,6 +6,7 @@ import {
   loadCodexConfig,
   getReasoningEffortOptions,
   getDefaultReasoningEffort,
+  reconcileCodexSelection,
 } from '../../config/codex-config.js';
 import type { AgentConfigCardBuilder, ConfigField } from './types.js';
 import { DEFAULT_TURN_IDLE_TIMEOUT_MINUTES, type AppConfig } from '../../config/index.js';
@@ -19,9 +20,17 @@ export class CodexConfigBuilder implements AgentConfigCardBuilder {
     const codexCfg = loadCodexConfig();
     const codexProviderNames = codexCfg.providerNames;
 
-    const currentModelProvider =
-      displayConfig.agents?.codex?.modelProvider ?? codexCfg.currentProvider;
-    const currentCodexModel = displayConfig.agents?.codex?.model ?? codexCfg.currentModel;
+    // config.yaml 可能落后于外部切换的 ~/.codex/config.toml（如 cc-switch）。
+    // 打开卡片即显示有效选择；保存其它字段时也会把这些对齐后的值一并落盘。
+    const reconciled = reconcileCodexSelection(
+      {
+        model: displayConfig.agents?.codex?.model,
+        modelProvider: displayConfig.agents?.codex?.modelProvider,
+      },
+      codexCfg,
+    );
+    const currentModelProvider = reconciled.modelProvider ?? codexCfg.currentProvider;
+    const currentCodexModel = reconciled.model ?? codexCfg.currentModel;
     const currentReasoningEffort =
       displayConfig.agents?.codex?.reasoningEffort ?? getDefaultReasoningEffort(currentCodexModel);
 
