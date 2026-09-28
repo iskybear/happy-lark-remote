@@ -50,6 +50,7 @@ export class ClaudeRunner implements AgentRunner {
   private readonly permissionMode: string;
 
   constructor(opts: {
+    unattended?: boolean;
     model?: string;
     effort?: string;
     settings?: string;
@@ -57,6 +58,8 @@ export class ClaudeRunner implements AgentRunner {
     pidDir?: string;
     workspace: string;
     spawnHeartbeatMs?: number;
+    /** 自动压缩窗口（token）；见 ClaudeSessionOptions.autoCompactWindow。 */
+    autoCompactWindow?: number;
     sessionReader?: AgentSessionReader;
     /** Claude 权限模式（官方 --permission-mode 枚举；'default'=省略参数）。 */
     permissionMode?: string;
@@ -68,6 +71,7 @@ export class ClaudeRunner implements AgentRunner {
     this.permissionMode = opts.permissionMode ?? 'bypassPermissions';
     this.sessionReader = opts.sessionReader ?? new ClaudeSessionReader();
     this.session = new ClaudeSession({
+      unattended: opts.unattended,
       pidDir: opts.pidDir,
       workspace: opts.workspace,
       stopGraceMs: opts.stopGraceMs,
@@ -76,6 +80,7 @@ export class ClaudeRunner implements AgentRunner {
       settings: opts.settings,
       model: this.defaultModel,
       effort: this.defaultEffort,
+      autoCompactWindow: opts.autoCompactWindow,
       idleTtlMs: opts.idleTtlMs,
     });
   }

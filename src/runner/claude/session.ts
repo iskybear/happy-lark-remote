@@ -33,6 +33,7 @@ import { readFile } from 'node:fs/promises';
 import { silentlyUnlink } from '../../common/fs.js';
 import { getLogger } from '../../logger/index.js';
 import { SpawningRunner } from '../common/spawning-runner.js';
+import { unattendedMessage } from '../common/unattended.js';
 import { authErrorEvent, syntheticInitEvent } from '../common/runner-utils.js';
 import type { AgentEvent, ApprovalView, SpawnOptions, UserQuestion } from '../types.js';
 import { makeQuestionApprovalEvent } from '../question-common.js';
@@ -55,6 +56,7 @@ interface ReplayedUserEvent {
 }
 
 export interface ClaudeSessionOptions {
+  unattended?: boolean;
   pidDir?: string;
   workspace: string;
   stopGraceMs?: number;
@@ -64,6 +66,13 @@ export interface ClaudeSessionOptions {
   settings?: string;
   model?: string;
   effort?: string;
+  /**
+   * Claude Code 自动压缩窗口（token）。经 CLAUDE_CODE_AUTO_COMPACT_WINDOW
+   * 传给子进程：上下文接近该值时自动摘要，避免撞上网关真实的输入上限
+   * （网关按 context_window - max_output_tokens 拒绝，而不是按模型名宣称的 1M）。
+   * 0/undefined = 不注入，沿用 settings.json / CLI 默认。
+   */
+  autoCompactWindow?: number;
   /** 会话级空闲回收 TTL（ms）：turn 之间无活动超过该窗口则停止进程。0=禁用。 */
   idleTtlMs?: number;
 }
@@ -86,10 +95,12 @@ export interface PermissionResult {
  * stream-json result 事件（非 compact）为界，而不是进程退出。
  */
 export class ClaudeSession extends SpawningRunner {
+  private readonly unattended: boolean;
   private readonly permissionMode: string;
   private readonly settings?: string;
   private readonly defaultModel?: string;
   private readonly defaultEffort?: string;
+  private readonly autoCompactWindow: number;
   private readonly idleTtlMs: number;
 
   /** 当前 turn 是否在途（防止并发 run 写乱 stdin）。 */
@@ -143,10 +154,12 @@ export class ClaudeSession extends SpawningRunner {
       agent: 'claude',
     });
     this.binary = 'claude';
+    this.unattended = opts.unattended ?? false;
     this.permissionMode = opts.permissionMode ?? 'bypassPermissions';
     this.settings = opts.settings;
     this.defaultModel = opts.model;
     this.defaultEffort = opts.effort;
+    this.autoCompactWindow = opts.autoCompactWindow ?? 0;
     this.idleTtlMs = opts.idleTtlMs ?? DEFAULT_IDLE_TTL_MS;
   }
 
@@ -193,7 +206,7 @@ export class ClaudeSession extends SpawningRunner {
       // turn 之间的 idle 噪音（如 prompt_suggestion）不属于本 turn，先清空。
       this.eventQueue.length = 0;
       try {
-        await this.writeUserMessage(message);
+        await this.writeUserMessage(unattendedMessage(message, this.unattended));
       } catch (err) {
         // review：stop()/进程死亡与写 stdin 竞态（EPIPE/ENOTCONN）。用户
         // stop 已置 stoppedByUser（或进程已死/流已结束）时，写入失败不抛给
@@ -310,6 +323,18 @@ export class ClaudeSession extends SpawningRunner {
     return ['pipe', 'pipe', 'pipe'];
   }
 
+  /**
+   * 注入自动压缩窗口：显式值优先于 settings.json / 环境（子进程 env 覆盖
+   * 用户设置里的同名键），保证 bridge 不受全局配置被 cc-switch 重写影响。
+   */
+  protected buildSpawnEnv(): NodeJS.ProcessEnv {
+    if (this.autoCompactWindow <= 0) return process.env;
+    return {
+      ...process.env,
+      CLAUDE_CODE_AUTO_COMPACT_WINDOW: String(this.autoCompactWindow),
+    };
+  }
+
   protected buildArgv(opts: SpawnOptions): string[] {
     const args = [
       '--output-format',
@@ -328,6 +353,10 @@ export class ClaudeSession extends SpawningRunner {
     // 本项目是 macOS 单用户场景不做该降级。
     if (this.permissionMode && this.permissionMode !== 'default') {
       args.push('--permission-mode', this.permissionMode);
+    }
+    if (this.unattended) {
+      args.push('--permission-prompts', 'none');
+      args.push('--disallowedTools', 'AskUserQuestion,EnterPlanMode,ExitPlanMode');
     }
 
     if (opts.sessionId) {
@@ -688,6 +717,20 @@ export class ClaudeSession extends SpawningRunner {
       // --resume 会先重放上一轮旧 result（早于 system/init）：丢弃，否则
       // consumeTurn 把历史结果误判为当前 turn 结束。bridge 有同款守卫（双保险）。
       if (!this.sawInit) return [];
+      if (event.is_error === true) {
+        return [
+          this.withTimestamp({
+            ...event,
+            subtype: 'error',
+            errorMessage:
+              typeof event.result === 'string'
+                ? event.result
+                : Array.isArray(event.errors)
+                  ? event.errors.join('\n')
+                  : 'Claude reported an API error',
+          }),
+        ];
+      }
       return [this.withTimestamp(event)];
     }
     if (type === 'system' && event.subtype === 'init') {
@@ -787,6 +830,16 @@ export class ClaudeSession extends SpawningRunner {
 
     const toolName = String(request.tool_name ?? '');
     const input = (request.input ?? {}) as Record<string, unknown>;
+    if (this.unattended) {
+      // Fail closed if an older CLI still emits a prompt. Do not kill the turn.
+      await this.writeControlResponse(requestId, {
+        behavior: 'deny',
+        message:
+          'Unattended remote session: no human answer or approval is available. Continue only within existing authorization, or report the blocker.',
+      });
+      getLogger().info(`[${this.logTag}] unattended request declined tool=${toolName}`);
+      return [];
+    }
     this.pendingToolInputs.set(requestId, input);
 
     // review P1：允许所有只放行工具权限；AskUserQuestion 不能被空 answers

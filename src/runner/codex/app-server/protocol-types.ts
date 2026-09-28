@@ -114,6 +114,8 @@ export type ThreadStatus =
 
 export interface ThreadResumeParams {
   threadId: string;
+  /** Resume metadata without hydrating the complete turn history. */
+  excludeTurns?: boolean;
   cwd?: string | null;
   model?: string | null;
   modelProvider?: string | null;

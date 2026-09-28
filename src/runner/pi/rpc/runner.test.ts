@@ -6,6 +6,7 @@ import { PiRpcRunner } from './runner.js';
 import type { AgentSessionReader } from '../../types.js';
 import { prependPath, restorePath, writeMockSource } from '../../../../tests/lib/path-mock.js';
 import { rmRf } from '../../../../tests/lib/tmp-cleanup.js';
+import { mockLogger } from '../../../../tests/lib/logger-mock.js';
 
 vi.mock('../../../logger/index.js', async () =>
   (await import('../../../../tests/lib/logger-mock.js')).loggerModuleMock(),
@@ -23,6 +24,7 @@ let stateRequests = 0;
 rl.on('line', (line) => {
   let msg; try { msg = JSON.parse(line); } catch { return; }
   if (config.commandLog) require('node:fs').appendFileSync(config.commandLog, msg.type + '\\n');
+  if (config.promptLog && msg.type === 'prompt') require('node:fs').appendFileSync(config.promptLog, JSON.stringify(msg) + '\\n');
   if (msg.type === 'get_state') {
     if (++stateRequests > 1 && config.ignoreHealth) return;
     send({ id: msg.id, type: 'response', command: 'get_state', success: true, data: { sessionId: config.sessionId || '${SESSION_ID}', model: config.model } });
@@ -89,6 +91,38 @@ function makeRunner(scenario: Record<string, unknown> = {}): PiRpcRunner {
 }
 
 describe('PiRpcRunner', () => {
+  it('unattended Pi keeps a live session and sends checkpoint guidance on every turn', async () => {
+    const promptLog = path.join(tmpDir, 'prompts.jsonl');
+    const runner = new PiRpcRunner({
+      workspace: tmpDir,
+      sessionReader: emptyReader,
+      unattended: true,
+      env: { MOCK_PI_SCENARIO: JSON.stringify({ promptLog }) },
+    });
+    try {
+      for (const sessionId of [undefined, SESSION_ID]) {
+        const events = [];
+        for await (const event of runner.run('Complete the tests', { cwd: tmpDir, sessionId })) {
+          events.push(event);
+        }
+        expect(events).toContainEqual(
+          expect.objectContaining({ type: 'result', subtype: 'success' }),
+        );
+        expect(events.some((event) => event.type === 'approval_requested')).toBe(false);
+      }
+      const prompts = fs
+        .readFileSync(promptLog, 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      expect(prompts).toHaveLength(2);
+      expect(prompts.every((prompt) => prompt.message.includes('checkpoint'))).toBe(true);
+      expect(await runner.probeHealth()).toBe(1);
+    } finally {
+      await runner.dispose();
+    }
+    expect(await runner.probeHealth()).toBe(0);
+  });
   it('test_anchor_run_new_session_captures_session_id_and_succeeds', async () => {
     const runner = makeRunner();
     const events = [];
@@ -107,6 +141,28 @@ describe('PiRpcRunner', () => {
       message: { content: Array<{ text: string }> };
     };
     expect(assistant.message.content).toContainEqual({ type: 'text', text: 'Hello' });
+  });
+
+  it('主动重建连接不会让旧 Pi close hook 误伤新 run', async () => {
+    const runner = makeRunner();
+    const first = [];
+    for await (const ev of runner.run('first', { cwd: tmpDir })) first.push(ev);
+
+    const second = [];
+    for await (const ev of runner.run('second', {
+      cwd: tmpDir,
+      sessionId: 'bbbbbbbb-1111-2222-3333-444444444444',
+    })) {
+      second.push(ev);
+    }
+
+    expect(second.find((e) => e.type === 'result')).toEqual(
+      expect.objectContaining({ subtype: 'success' }),
+    );
+    expect(mockLogger.warn).not.toHaveBeenCalledWith(
+      expect.stringContaining('Pi RPC connection closed'),
+    );
+    await runner.dispose();
   });
 
   it('uses the live model limit and resets API count on resumed turns', async () => {

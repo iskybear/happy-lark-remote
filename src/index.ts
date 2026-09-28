@@ -226,8 +226,10 @@ function initializeRunner(
   agentRegistry.register('claude', (ws) => {
     const claudeConfig = latest().claude;
     return new ClaudeRunner({
+      unattended: latest().unattended,
       model: claudeConfig.model,
       effort: claudeConfig.effort,
+      autoCompactWindow: claudeConfig.autoCompactWindow,
       stopGraceMs: claudeConfig.stopGraceMs,
       settings: cliArgs.settings,
       pidDir: configDir,
@@ -246,6 +248,7 @@ function initializeRunner(
   agentRegistry.register('codex', (_ws: string) => {
     const codexConfig = getAgentConfig(latest(), 'codex');
     return new CodexAppServerRunner({
+      unattended: latest().unattended,
       kind: 'codex',
       model: codexConfig?.model,
       modelProvider: codexConfig?.modelProvider,
@@ -315,6 +318,7 @@ function initializeRunner(
   agentRegistry.register('pi', (ws: string) => {
     const piConf = getAgentConfig(latest(), 'pi');
     return new PiRpcRunner({
+      unattended: latest().unattended,
       provider: piConf?.provider ?? 'Volcano',
       model: piConf?.model ?? 'glm-5.2',
       thinking: piConf?.thinking ?? 'medium',
@@ -839,9 +843,14 @@ async function main() {
   }
 
   logger.info('config loaded');
+  logger.info(
+    `unattended = ${config.unattended ?? false}; idle.watchdogMinutes = ${config.idle.watchdogMinutes}`,
+  );
   logger.info(`configDir = ${configDir}`);
   logger.info(`feishu.appId = ${config.feishu.appId}`);
   logger.info(`claude.model = ${config.claude.model}`);
+  logger.info(`claude.autoCompactWindow = ${config.claude.autoCompactWindow}`);
+  logger.info(`recovery.dir = ${path.join(configDir, 'recovery')}; agents = pi,codex,claude`);
   if (cliArgs.settings) {
     logger.info(`claude.settings = ${cliArgs.settings}`);
   }
@@ -871,6 +880,7 @@ async function main() {
     workspaceStore,
     agentRegistry,
     sessionReaderRegistry,
+    recoveryDir: path.join(configDir, 'recovery'),
   });
   const cloneSession = new CloneSession({
     connector,

@@ -4,8 +4,8 @@
  * 三条口径共用一个前提——**一帧的边界不等于一次 `data` 事件的边界**：
  * 1. 多字节字符跨 chunk 拆分时必须由 decoder 缓冲，逐 chunk `toString` 会产出
  *    不可逆的 U+FFFD（中文工具输出/助手正文变问号）。
- * 2. 行长上限量的是 **UTF-8 字节**：`line.length` 是 UTF-16 单元数，中文 1 单元
- *    = 3 字节、emoji 2 单元 = 4 字节，约 2-3× 低估。
+ * 2. 行长上限量的是 **UTF-8 字节**；超限时丢弃该行并从下一个换行重新同步，
+ *    不让一条大结果断开长驻 agent。
  * 3. `onMessage` 抛错是 handler 故障，不能记成「failed to parse JSON」——
  *    那会把真实故障点掩盖成协议噪声。
  */
@@ -75,7 +75,7 @@ async function startTransport(onMessage?: (msg: unknown) => void): Promise<Harne
     closes,
     child,
     push: (chunk) => void child.stdout.emit('data', chunk),
-    exit: () => void child.emit('exit', 0, null),
+    exit: () => void child.emit('close', 0, null),
   };
 }
 
@@ -132,15 +132,14 @@ describe('JsonlRpcTransport 分帧解码', () => {
     expect(messages).toEqual([{ jsonrpc: '2.0', id: 2, method: '收尾' }]);
   });
 
-  it('行长上限按 UTF-8 字节算，不按 UTF-16 单元数', async () => {
-    const huge = '中'.repeat(3_500_000); // 10.5MB 字节 > 10MB 上限
-    expect(huge.length).toBeLessThan(10 * 1024 * 1024);
+  it('行长上限按 UTF-8 字节算，超限时丢帧并继续接收下一帧', async () => {
+    const huge = '中'.repeat(22_400_000); // 67.2MB 字节 > 64MB 上限
+    const { messages, closes, push } = await startTransport();
+    push(Buffer.from(`${huge}\n${JSON.stringify({ id: 4 })}\n`, 'utf8'));
 
-    const { closes, push } = await startTransport();
-    push(Buffer.from(`${huge}\n`, 'utf8'));
-
-    expect(closes).toContain('parse_error');
-    expect(mockLogger.error.mock.calls.some((c) => String(c[0]).includes('line exceeds'))).toBe(
+    expect(closes).toEqual([]);
+    expect(messages).toEqual([{ id: 4 }]);
+    expect(mockLogger.warn.mock.calls.some((c) => String(c[0]).includes('line exceeds'))).toBe(
       true,
     );
   });

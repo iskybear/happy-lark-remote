@@ -108,6 +108,11 @@ export class JsonRpcClient<InitializeResult = unknown> {
     this.runHooks = hooks;
   }
 
+  /** Detach the previous run before the connection is intentionally released. */
+  clearRunHooks(): void {
+    this.runHooks = null;
+  }
+
   get ready(): boolean {
     return this._ready;
   }
@@ -128,8 +133,8 @@ export class JsonRpcClient<InitializeResult = unknown> {
   async connect(): Promise<InitializeResult> {
     const events = {
       onMessage: (msg: object) => this.handleMessage(msg),
-      onClose: () => {
-        this.failPending(new ConnectionLostError('transport closed'));
+      onClose: (reason: string) => {
+        this.failPending(new ConnectionLostError(`transport closed: ${reason}`));
         // 先通知连接层（slot 清理 + onConnectionLost），再通知当前 run 层
         // （failTurn 等）。两层互不覆盖。
         this.baseHooks.onClose();
@@ -247,6 +252,7 @@ export class JsonRpcClient<InitializeResult = unknown> {
     if (this._disposed) return;
     this._disposed = true;
     this._ready = false;
+    this.clearRunHooks();
     this.failPending(new ConnectionLostError('client disposed'));
     await this.transport.close();
   }
